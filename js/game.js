@@ -505,6 +505,8 @@ $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on'
 $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); };
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
 $('tQual').onclick = e => { quality = quality === 'high' ? 'low' : 'high'; e.currentTarget.textContent = quality === 'high' ? '✨ ภาพ: สูง' : '⚡ ภาพ: เร็ว'; resize(); };
+$('tFull').onclick = () => { const d = document, el = d.documentElement; if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d); else { const f = el.requestFullscreen || el.webkitRequestFullscreen; if (f) Promise.resolve(f.call(el)).catch(() => {}); } };
+['fullscreenchange', 'webkitfullscreenchange'].forEach(ev => document.addEventListener(ev, () => { $('tFull').textContent = (document.fullscreenElement || document.webkitFullscreenElement) ? '⛶ ออกเต็มจอ' : '⛶ เต็มจอ'; resize(); }));
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
 function mistFx() {
   for (let i = 0; i < 90; i++) { const m = new THREE.Mesh(dropGeo, dropMat); m.scale.set(1, 2.2, 1);
