@@ -2,6 +2,7 @@
 
 Browser game: realistic Thai tarantula terrarium simulator. Thai UI. No build step, no npm deps.
 Owner prefers: simple Thai explanations, short answers first, plan before big changes, minimal effort / max ROI.
+Whenever you use a helper (subagent, skill, or automated tool like code-review), tell the owner which one and, in one short line, what it does.
 
 ## Run / publish
 - Open `index.html` directly (file://) or via GitHub Pages. three.js **r128** classic scripts (globals), vendored in `lib/`.
