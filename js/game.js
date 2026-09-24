@@ -567,8 +567,17 @@ resize();
 const clock = new THREE.Clock(); let hudT = 0, saveT = 0;
 // background & fog are shaded in linear space, so convert the sRGB picks (otherwise the room turns milky grey)
 const BG_DAY = new THREE.Color(0x1a1512).convertSRGBToLinear(), BG_NIGHT = new THREE.Color(0x07080d).convertSRGBToLinear(), camPrev = new V3();
+// auto quality: if the first seconds run below ~30 fps (e.g. Chrome without GPU acceleration), switch to the fast mode once
+let perfN = 0, perfSum = 0, perfDone = false;
+function autoQuality(raw) {
+  if (perfDone || quality !== 'high' || document.hidden) return;
+  if (++perfN < 60) return; // skip warm-up frames (shader compile)
+  perfSum += raw;
+  if (perfN >= 150) { perfDone = true; if (perfSum / 90 > 1 / 30) { $('tQual').click(); log('เครื่องนี้ภาพกระตุก เลยสลับเป็นโหมด ⚡ ภาพเร็ว ให้อัตโนมัติ (กดปุ่มเพื่อกลับเป็นภาพสูงได้)', true); } }
+}
 function loop() {
-  const dt = Math.min(clock.getDelta(), .05), now = clock.elapsedTime;
+  const raw = clock.getDelta(), dt = Math.min(raw, .05), now = clock.elapsedTime;
+  autoQuality(raw);
   HAIR_U.uTime.value = now; grade.uniforms.uTime.value = now;
   tick(dt);
   // foliage is shoved by the spider's body and legs and by prey, then springs back
