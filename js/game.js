@@ -477,6 +477,10 @@ function loop() {
   const dt = Math.min(clock.getDelta(), .05), now = clock.elapsedTime;
   HAIR_U.uTime.value = now; grade.uniforms.uTime.value = now;
   tick(dt);
+  // foliage is shoved by the spider's body and legs and by prey, then springs back
+  const cols = spider && spider.legs[0].J ? spider.colliders([]) : [];
+  prey.forEach(p => { if (!p.eaten && p.burrowed < .5) cols.push(p.mesh.position.x, p.mesh.position.y + .3, p.mesh.position.z, p.kind === 'cricket' ? .5 : .65); });
+  updateFoliage(dt, cols);
   // lighting: room daylight follows the clock; LED bar and heat lamp follow their switches
   const day = daylight(), k = clamp(dt * 3, 0, 1), B = LIGHT_BASE;
   led.intensity = lerp(led.intensity, S.led ? B.led : 0, k);

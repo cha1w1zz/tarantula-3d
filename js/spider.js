@@ -149,6 +149,9 @@ function segGeo(r0, r1, len, bulge) {
   return new THREE.LatheGeometry(pts, 16);
 }
 
+// underside of carapace, chelicerae and abdomen in body space (× span): the points that must stay above rock and soil
+const BODY_UNDER = [[0, -.016, .03], [.06, -.01, .03], [-.06, -.01, .03], [0, -.03, .12], [0, -.014, -.04],
+                    [0, -.044, -.165], [.08, -.012, -.165], [-.08, -.012, -.165], [0, -.03, -.09], [0, -.022, -.26]];
 // leg layout: hip angle, foot angle (rad from forward), reach and segment lengths as fractions of leg span
 const LEG_CFG = [
   { ang: .6, fa: .5, reach: .5, a: .165, b: .185, c: .12, t: .06 },
@@ -309,9 +312,24 @@ class Spider {
     return g;
   }
   worldOf(v) { return this.root.localToWorld(v.clone()); }
+  // a foothold the leg can really reach: walk in from the neutral spot toward the hip until the ground there is within
+  // reach and not hidden behind a bulge (rock shoulder) the arched leg could not bend over, so a foot never aims at a
+  // rock top far above the hip (or soil far below a ledge) and drags the leg through the rock
+  foothold(l, v, hip) {
+    const L = this.span, reach = L * .52, dx = v.x - hip.x, dz = v.z - hip.z; let best = null, bestBad = 1e9;
+    for (let k = 0; k <= 9; k++) {
+      const f = 1 - k * .08, x = hip.x + dx * f, z = hip.z + dz * f, y = groundY(x, z) + L * .005;
+      let bad = Math.max(0, Math.hypot(x - hip.x, y - hip.y, z - hip.z) - reach);
+      for (let u = .2; u < .95; u += .15) { const over = groundY(hip.x + (x - hip.x) * u, hip.z + (z - hip.z) * u) - (hip.y + (y - hip.y) * u) - L * .07 * Math.sin(Math.PI * u);
+        if (over > 0) bad += over; }
+      if (bad <= 0) return v.set(x, y, z);
+      if (bad < bestBad) { bestBad = bad; best = [x, y, z]; }
+    }
+    return v.set(best[0], best[1], best[2]);
+  }
   placeFeet() {
     this.poseRoot(0, true);
-    this.legs.forEach(l => { const w = this.worldOf(l.rest); w.y = groundY(w.x, w.z); l.foot.copy(w); l.swing = false; });
+    this.legs.forEach(l => { l.foot.copy(this.foothold(l, this.worldOf(l.rest), this.worldOf(l.hip))); l.swing = false; });
     this.palps.forEach(p => { const w = this.worldOf(p.rest); w.y = groundY(w.x, w.z); p.foot.copy(w); });
     this.bodyY = null; this.update(0);
   }
@@ -331,6 +349,16 @@ class Spider {
     const tp = -Math.atan2(front - back, L * .38) * .8 - st.rear * .55 - st.threat * .45 + st.stalk * .06 + st.eat * -.12;
     const tr = Math.atan2(left - right, L * .45) * .8 + (swingR - swingL) * .012 * clamp(speed / (L * .3), 0, 1);
     this.pitchS = lerp(this.pitchS, tp, k); this.rollS = lerp(this.rollS, tr, k);
+    // hard floor: sample the underside of carapace and abdomen after tilting, so a body straddling a rock rides over it
+    // instead of sinking in (skipped while hiding in the burrow or lying on its back)
+    const off = 1 - Math.max(st.hidden, st.flip);
+    if (off > .01) {
+      const e = this._eul || (this._eul = new THREE.Euler(0, 0, 0, 'YXZ')), v = this._v || (this._v = new V3());
+      e.set(this.pitchS, this.yaw, this.rollS); let floor = -1e9;
+      for (const o of BODY_UNDER) { v.set(o[0] * L, o[1] * L, o[2] * L).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .012); }
+      for (const l of legs) { v.copy(l.hip).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .025); }   // hips sit wider than the body
+      this.bodyY = Math.max(this.bodyY, floor - (1 - off) * L * .5);
+    }
     this.root.position.set(this.pos.x, this.bodyY, this.pos.z);
     this.root.rotation.set(this.pitchS * (1 - st.flip), this.yaw, this.rollS * (1 - st.flip) + st.flip * Math.PI);
     this.root.updateMatrixWorld(true);
@@ -341,14 +369,18 @@ class Spider {
   // hip → knee → ankle (analytic 2-bone); the metatarsus hangs from the ankle and the tarsus lies on the ground
   // `raise` (0..1) is for a leg held up in the air: the distal segments then continue outward instead of hanging down
   solve(l, foot, tuck, raise) {
-    const hipW = this.worldOf(l.hip), up = this.legUp; raise = raise || 0;
+    const hipW = this.worldOf(l.hip), up = this.legUp, L = this.span; raise = raise || 0;
     const out = new V3(foot.x - hipW.x, 0, foot.z - hipW.z); if (out.lengthSq() < 1e-6) out.set(0, 0, 1); out.normalize();
+    // a foot on the ground (rock face included) stands off that surface: the distal segments use the ground normal as "up"
+    const touch = (1 - clamp((foot.y - groundY(foot.x, foot.z)) / (L * .08), 0, 1)) * (1 - raise);
+    const sUp = touch > .01 ? up.clone().lerp(groundN(foot.x, foot.z).lerp(up, .3), touch).normalize() : up;
+    const outS = out.clone().addScaledVector(sUp, -out.dot(sUp)); if (outS.lengthSq() < 1e-6) outS.copy(out); outS.normalize();
     let tdir = null, base = foot;
     if (l.T) { // tarsus: nearly flat on the ground while planted, curls under while swinging
-      tdir = out.clone().addScaledVector(up, -.22 - .55 * tuck).normalize().lerp(out.clone().addScaledVector(up, .45).normalize(), raise).normalize();
+      tdir = outS.clone().addScaledVector(sUp, -.22 - .55 * tuck).normalize().lerp(out.clone().addScaledVector(up, .45).normalize(), raise).normalize();
       base = foot.clone().addScaledVector(tdir, -l.t);
     }
-    const ad = up.clone().multiplyScalar(.55 + tuck * .3).addScaledVector(out, -(.83 - tuck * .3)).normalize()
+    const ad = sUp.clone().multiplyScalar(.55 + tuck * .3).addScaledVector(outS, -(.83 - tuck * .3)).normalize()
       .lerp(out.clone().negate().addScaledVector(up, -.45).normalize(), raise).normalize();
     const ankle = base.clone().addScaledVector(ad, l.c);
     const dir = ankle.clone().sub(hipW); let d = dir.length(); dir.normalize();
@@ -361,10 +393,37 @@ class Spider {
     const bend = up.clone().addScaledVector(out, .35).normalize(); const perp = bend.sub(dir.clone().multiplyScalar(bend.dot(dir)));
     if (perp.lengthSq() < 1e-8) perp.copy(up); perp.normalize();
     const knee = hipW.clone().addScaledVector(dir, x).addScaledVector(perp, y);
-    const tip = ankle.clone().addScaledVector(ad, -l.c);
+    if (this.st.hidden < .3) this.unclip(hipW, knee, ankle, base, l.a, l.b, l.c, L * .02);
+    const tip = ankle.clone().add(base.clone().sub(ankle).setLength(l.c));
     this.orient(l.A, hipW, knee); this.orient(l.B, knee, ankle); this.orient(l.C, ankle, tip);
     l.k1.position.copy(knee); l.k2.position.copy(ankle);
     if (l.T) { this.orient(l.T, tip, tip.clone().add(tdir)); l.k3.position.copy(tip); }
+    l.J = { hip: hipW, knee, ankle, tip };
+  }
+  // keep knee, ankle and the middle of every segment out of rock and soil. The analytic pose is kept when it is already
+  // clear; otherwise joints are pushed out along the surface normal and bone lengths restored (FABRIK, hip + base fixed)
+  unclip(hip, knee, ankle, base, a, b, c, r) {
+    const P = [hip, knee, ankle, base], m = this._m || (this._m = new V3());
+    const depth = v => groundY(v.x, v.z) + r - v.y;                       // > 0: inside the ground (vertical depth)
+    const out = (v, d) => { const n = groundN(v.x, v.z); v.addScaledVector(n, d * Math.max(n.y, .15)); };   // ≈ perpendicular depth
+    for (let it = 0; it < 5; it++) {
+      let hit = false;
+      for (let j = 1; j <= 2; j++) { const d = depth(P[j]); if (d > 0) { out(P[j], d); hit = true; } }
+      for (let s = 0; s < 3; s++) { m.addVectors(P[s], P[s + 1]).multiplyScalar(.5); const d = depth(m); if (d <= 0) continue; hit = true;
+        if (s > 0) out(P[s], s === 2 ? d * 2 : d); if (s < 2) out(P[s + 1], s === 0 ? d * 2 : d); }
+      if (!hit) return;
+      P[2].sub(P[3]).setLength(c).add(P[3]); P[1].sub(P[2]).setLength(b).add(P[2]);      // backward from the tarsus base
+      P[1].sub(P[0]).setLength(a).add(P[0]); P[2].sub(P[1]).setLength(b).add(P[1]);      // forward from the hip
+    }
+  }
+  // spheres the foliage is pushed by: body, abdomen and the leg joints / segment middles
+  colliders(out) {
+    const L = this.span, r = this.root.position, ab = this.worldOf(this._abdC || (this._abdC = new V3(0, L * .025, -L * .165)));
+    out.push(r.x, r.y, r.z, L * .1, ab.x, ab.y, ab.z, L * .1);
+    for (const l of this.legs) { const j = l.J; if (!j) continue;
+      for (const p of [j.knee, j.ankle, j.tip, l.foot]) out.push(p.x, p.y, p.z, L * .03);
+      out.push((j.hip.x + j.knee.x) / 2, (j.hip.y + j.knee.y) / 2, (j.hip.z + j.knee.z) / 2, L * .035, (j.knee.x + j.ankle.x) / 2, (j.knee.y + j.ankle.y) / 2, (j.knee.z + j.ankle.z) / 2, L * .03); }
+    return out;
   }
   orient(m, a, b) { m.position.copy(a); m.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize()); }
   startSwing(l, dur) { l.swing = true; l.st = 0; l.dur = Math.max(.07, dur); l.from.copy(l.foot); }
@@ -389,7 +448,8 @@ class Spider {
     // where a leg's neutral foothold will be `ta` seconds from now (body keeps translating and turning)
     const lead = moving ? duty / freq * .5 : 0;
     const restAt = (l, ta) => { const a = this.yaw + this.yawRate * ta, c = Math.cos(a), sn = Math.sin(a), r = l.rest;
-      const v = new V3(this.pos.x + r.x * c + r.z * sn + this.vel.x * ta, 0, this.pos.z - r.x * sn + r.z * c + this.vel.z * ta); v.y = groundY(v.x, v.z); return v; };
+      const v = new V3(this.pos.x + r.x * c + r.z * sn + this.vel.x * ta, 0, this.pos.z - r.x * sn + r.z * c + this.vel.z * ta);
+      return this.foothold(l, v, this.worldOf(l.hip).addScaledVector(this.vel, ta)); };
 
     this.legs.forEach(l => {
       const restW = restAt(l, 0);
@@ -418,7 +478,7 @@ class Spider {
         // lift-off leads the forward swing and set-down trails it, so the foot peels up and places down instead of sliding
         const e = smooth01(.1, .9, s), hgt = Math.pow(Math.sin(Math.PI * Math.min(1, s * 1.08)), .75);
         l.foot.lerpVectors(l.from, tgt, e); l.foot.y += hgt * (lift + Math.max(0, tgt.y - l.from.y) * .6);
-        l.foot.y = Math.max(l.foot.y, groundY(l.foot.x, l.foot.z));
+        l.foot.y = Math.max(l.foot.y, groundY(l.foot.x, l.foot.z) + L * (.005 + .015 * hgt));   // clears rock edges it swings over
         l.tuck = hgt;
         if (s >= 1) { l.swing = false; l.tuck = 0; l.foot.copy(tgt); }
       }
