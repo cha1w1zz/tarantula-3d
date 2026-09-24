@@ -1,0 +1,134 @@
+<title>บึ้งไทย 3D</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;600&family=Sarabun:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+:root{
+  color-scheme:dark;
+  --ink:#0d0b09; --panel:rgba(22,18,14,.82); --line:rgba(224,164,88,.22);
+  --text:#efe6d6; --mute:#a99c86; --amber:#e0a458; --moss:#8fa35a; --warn:#e2704f; --blue:#7fb0f0;
+}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--text);overflow:hidden}
+body{font:15px/1.5 "Sarabun",system-ui,sans-serif}
+canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
+.num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.hud{position:fixed;left:16px;top:calc(16px + env(safe-area-inset-top,0px));width:min(300px,calc(100% - 32px));
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;backdrop-filter:blur(6px);display:grid;gap:8px}
+.hud h1{margin:0;font-size:20px;font-weight:600;line-height:1.2}
+.hud .sci{color:var(--mute);font-style:italic;font-size:13px}
+.row{display:grid;grid-template-columns:96px 1fr 84px;gap:8px;align-items:center;font-size:13px}
+.bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--amber);transition:width .4s}
+.bar.ok i{background:var(--moss)} .bar.bad i{background:var(--warn)}
+.state{display:inline-block;padding:2px 10px;border-radius:99px;background:rgba(224,164,88,.15);color:var(--amber);font-size:13px;justify-self:start}
+.state.warn{background:rgba(226,112,79,.18);color:var(--warn)}
+.tools{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));
+  display:flex;flex-wrap:wrap;justify-content:center;gap:8px;width:calc(100% - 32px);max-width:760px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;
+  padding:9px 14px;font-size:14px;cursor:pointer;backdrop-filter:blur(6px)}
+.btn:hover{border-color:var(--amber)} .btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.btn.on{background:rgba(224,164,88,.25);border-color:var(--amber)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.log{position:fixed;right:16px;top:calc(16px + env(safe-area-inset-top,0px));width:min(320px,calc(100% - 32px));max-height:40vh;overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:13px;display:grid;gap:6px}
+.log h2{margin:0;font-size:14px;color:var(--amber);font-weight:600;letter-spacing:.03em}
+.log p{margin:0;color:var(--mute)} .log p b{color:var(--text);font-weight:600}
+.log p.sci{color:var(--blue)}
+.log p.say{color:#f1dcb4} .log p.say i{color:var(--amber);font-style:normal;font-weight:600}
+.say{position:fixed;left:0;top:0;z-index:3;max-width:min(240px,70vw);padding:7px 12px;border-radius:12px;background:rgba(250,243,228,.95);color:#1d140b;
+  font:600 13px/1.45 "Sarabun",sans-serif;pointer-events:none;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .3s;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.say::after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:rgba(250,243,228,.95)}
+.say.on{opacity:1}
+@media (max-width:700px){
+  .tools{flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding-bottom:2px}
+  .tools::-webkit-scrollbar{display:none}
+  .tools .btn{flex:0 0 auto;white-space:nowrap;padding:8px 11px;font-size:13px;scroll-snap-align:start}
+  .log{top:auto;bottom:calc(66px + env(safe-area-inset-bottom,0px));max-height:20vh;padding:8px 12px}
+  .hud{padding:8px 11px;gap:5px}.hud h1{font-size:17px}
+  .row{grid-template-columns:84px 1fr 74px;font-size:12px}
+}
+body.noui .hud,body.noui .log,body.noui .tools,body.noui .say{display:none!important}
+.uiBack{display:none;position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:4;opacity:.55}
+body.noui .uiBack{display:block}
+body.saver .uiBack{display:none}body.saver{cursor:none}
+.overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(10,8,6,.72);padding:16px;z-index:5}
+.card{background:#17130f;border:1px solid var(--line);border-radius:14px;padding:22px;max-width:440px;width:100%;display:grid;gap:14px}
+.card h2{margin:0;font-size:24px;text-wrap:balance}
+.card p{margin:0;color:var(--mute)}
+.card input{font:inherit;font-size:16px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:#0e0c0a;color:var(--text)}
+.species{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.species .btn{padding:8px 6px;font-size:13px;line-height:1.3}
+.hint{font-size:12px;color:var(--mute)}
+.vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(5,4,3,.6) 100%)}
+</style>
+
+<canvas id="c"></canvas>
+
+
+<div class="hud" id="hud" hidden>
+  <div><h1 id="hName">-</h1><div class="sci" id="hSp">-</div></div>
+  <span class="state" id="hState">สำรวจ</span>
+  <div class="row"><span>ความหิว</span><div class="bar" id="bHunger"><i></i></div><span class="num" id="vHunger">0%</span></div>
+  <div class="row"><span>อุณหภูมิ</span><div class="bar" id="bTemp"><i></i></div><span class="num" id="vTemp">0°C</span></div>
+  <div class="row"><span>ความชื้น</span><div class="bar" id="bHum"><i></i></div><span class="num" id="vHum">0%</span></div>
+  <div class="row"><span>พร้อมลอกคราบ</span><div class="bar" id="bGrow"><i></i></div><span class="num" id="vGrow">0%</span></div>
+  <div class="row"><span>ขนาดขา</span><span class="num" id="vSpan">-</span><span class="num" id="vMolt">-</span></div>
+  <div class="row"><span>เวลา</span><span class="num" id="vTime">-</span><span id="vDay"></span></div>
+</div>
+
+<div class="say" id="say" aria-live="polite"></div>
+<div class="log" id="log" hidden><h2>สมุดบันทึกผู้เลี้ยง</h2></div>
+
+<div class="tools" id="tools" hidden>
+  <button class="btn" id="tCricket">🦗 ให้จิ้งหรีด</button>
+  <button class="btn" id="tDubia">🪳 ให้แมลงสาบดูเบีย</button>
+  <button class="btn" id="tMist">💧 พ่นน้ำ</button>
+  <button class="btn on" id="tLed">💡 ไฟตู้</button>
+  <button class="btn on" id="tLamp">🔥 ไฟอุ่น</button>
+  <button class="btn on" id="tVib">〰 แรงสั่น</button>
+  <button class="btn" id="tFollow">🎥 ตามแมงมุม</button>
+  <button class="btn" id="tCine">🎬 มุมหนัง</button>
+  <button class="btn" id="tFast">⏩ เร่งเวลา</button>
+  <button class="btn" id="tQual">✨ ภาพ: สูง</button>
+  <button class="btn" id="tFull">⛶ เต็มจอ</button>
+  <button class="btn" id="tTank">🪟 มุมตู้จริง</button>
+  <button class="btn" id="tSaver">🎬 พักจอ</button>
+  <button class="btn" id="tSaverWin">🎬 พักจอ (หน้าต่าง)</button>
+  <button class="btn" id="tHide">🙈 ซ่อน UI</button>
+</div>
+<button class="btn uiBack" id="uiBack">👁 แสดง UI</button>
+
+<div class="overlay" id="start">
+  <div class="card">
+    <h2>รับบึ้งไทยมาเลี้ยง</h2>
+    <p>ตั้งชื่อแล้วเลือกสายพันธุ์ หรือกดสุ่ม ตู้ของคุณจำลองจากชีววิทยาจริง: แมงมุมรับรู้เหยื่อด้วยแรงสั่นสะเทือน เดินสลับขาทีละ 4 ขา และต้องลอกคราบเพื่อโตขึ้น</p>
+    <input id="nameIn" maxlength="20" placeholder="ชื่อแมงมุม เช่น ปีเตอร์" value="ปีเตอร์">
+    <div class="species" id="spPick"></div>
+    <button class="btn" id="goBtn" style="background:var(--amber);color:#1a120a;border-color:var(--amber);font-weight:600">เริ่มเลี้ยง (สุ่มพันธุ์)</button>
+    <div class="hint">หมุนกล้อง: ลากเมาส์/นิ้ว · ซูม: ล้อเมาส์/หยิก · แตะแมงมุม: จิ้มดูปฏิกิริยา</div>
+  </div>
+</div>
+
+<script src="js/intro.js"></script>
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<script src="lib/RoomEnvironment.js"></script>
+<script src="lib/ImprovedNoise.js"></script>
+<script src="lib/CopyShader.js"></script>
+<script src="lib/LuminosityHighPassShader.js"></script>
+<script src="lib/BokehShader.js"></script>
+<script src="lib/FXAAShader.js"></script>
+<script src="lib/EffectComposer.js"></script>
+<script src="lib/RenderPass.js"></script>
+<script src="lib/ShaderPass.js"></script>
+<script src="lib/BokehPass.js"></script>
+<script src="lib/UnrealBloomPass.js"></script>
+<script src="js/world.js"></script>
+<script src="js/spider.js"></script>
+<script src="js/facts.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/game.js"></script>
+<script src="js/look.js"></script>
