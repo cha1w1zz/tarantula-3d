@@ -373,7 +373,7 @@ function welded(geo) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
 }
 /* a boulder = sphere clipped by random planes (flat fracture faces with slightly rounded edges), then lumps,
-   fissures and faint bedding layers; the lower part is sunk into the substrate */
+   faint bedding layers (no carved fissure grooves: they read as drawn outlines); the lower part is sunk into the substrate */
 ROCKS.forEach(k => {
   const R = seeded(k.s * 7919 + 17), rr = (a, b) => a + R() * (b - a), ox = rr(0, 50);
   const planes = [];
@@ -390,7 +390,7 @@ ROCKS.forEach(k => {
     q.copy(d).multiplyScalar(t);
     const cr = 1 - Math.abs(PERLIN.noise(q.x * 2.2 + ox, q.y * 2.2 + 3.1, q.z * 2.2));
     const crack = sstep(.9, .99, cr) * sstep(-.15, .25, fbm(q.x * 1.3, q.y * 1.3 + ox, q.z * 1.3, 2));
-    q.multiplyScalar(1 + fbm(q.x * 1.2 + ox, q.y * 1.2, q.z * 1.2, 3) * .1 + fbm(q.x * 4 + ox, q.y * 4 + 7, q.z * 4, 3) * .035 - crack * .04
+    q.multiplyScalar(1 + fbm(q.x * 1.2 + ox, q.y * 1.2, q.z * 1.2, 3) * .1 + fbm(q.x * 4 + ox, q.y * 4 + 7, q.z * 4, 3) * .035
       + Math.sin(q.dot(sDir) * 17 + fbm(q.x * 2, q.y * 2, q.z * 2 + ox, 2) * 5) * strata);
     p.setXYZ(i, q.x, q.y, q.z); crackA[i] = crack; top = Math.max(top, q.y);
   }
