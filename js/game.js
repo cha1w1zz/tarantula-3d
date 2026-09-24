@@ -2,7 +2,7 @@
 /* =====================================================================
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
-let saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
+let tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
@@ -532,6 +532,9 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const fsOff = () => { if (saverOn && !fsEl() && performance.now() - saverAt > 1500) saver(false); };
   d.addEventListener('fullscreenchange', fsOff); d.addEventListener('webkitfullscreenchange', fsOff);
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
+// locked front view: the screen acts as the terrarium's front glass
+$('tTank').onclick = e => { tankView = !tankView; e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
+  if (tankView && follow) $('tFollow').click(); };
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
 $('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
@@ -626,6 +629,9 @@ function loop() {
   da.needsUpdate = true; dust.material.opacity = .02 + ledK * .12 + lampK * .04;
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
   if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
+  if (tankView && !saverOn) { // fit the whole tank front in view, eye level, looking straight in
+    const t = Math.tan(camera.fov * Math.PI / 360), d = Math.max(TH / 2 / t, TW / 2 / (t * camera.aspect)) * .92, y = TH * .42;
+    controls.target.set(0, y, 0); camera.position.lerp(camPrev.set(0, y, TD / 2 + d), clamp(dt * 3, 0, 1)); }
   if (saverOn && spider) { // new shot every ~14 s: angle, height and distance drift smoothly while the camera circles
     saverT -= dt; if (saverT <= 0) { saverT = rand(10, 18); const s = spider.span || 10; saverShot = { el: rand(.18, .75), r: s * rand(1.3, 3.2) + 6, spin: rand(.03, .08) * (Math.random() < .5 ? -1 : 1) }; }
     const off = camPrev.copy(camera.position).sub(controls.target), r0 = off.length();
