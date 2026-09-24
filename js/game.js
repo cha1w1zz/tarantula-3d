@@ -590,7 +590,7 @@ S = newState('', 'lividus'); spider = new Spider('lividus', 10); pickWander();
 resize();
 const clock = new THREE.Clock(); let hudT = 0, saveT = 0;
 // background & fog are shaded in linear space, so convert the sRGB picks (otherwise the room turns milky grey)
-const BG_DAY = new THREE.Color(0x1a1512).convertSRGBToLinear(), BG_NIGHT = new THREE.Color(0x07080d).convertSRGBToLinear(), camPrev = new V3();
+const BG_DAY = new THREE.Color(0), BG_NIGHT = new THREE.Color(0), camPrev = new V3();
 // auto quality: if the first seconds run below ~30 fps (e.g. Chrome without GPU acceleration), switch to the fast mode once
 let perfN = 0, perfSum = 0, perfDone = false;
 function autoQuality(raw) {

@@ -23,7 +23,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
 renderer.physicallyCorrectLights = false;
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1512).convertSRGBToLinear();
+scene.background = new THREE.Color(0);
 scene.fog = new THREE.FogExp2(scene.background.getHex(), 0.0042);
 const camera = new THREE.PerspectiveCamera(36, 1, 0.2, 600);
 camera.position.set(4, 34, 58);
@@ -879,8 +879,9 @@ const glassGroup = new THREE.Group(); scene.add(glassGroup);
 }
 const table = new THREE.Mesh(new THREE.PlaneGeometry(260, 160), track(new THREE.MeshStandardMaterial({ map: TABLE.map, normalMap: TABLE.normalMap, roughness: .5, color: 0x9a8a7a }), .45));
 table.rotation.x = -Math.PI / 2; table.position.y = -2; table.receiveShadow = true; scene.add(table);
+table.visible = false;   // outside the tank is kept pitch dark: the tank floats in black like a real one in a dark room
 // out-of-focus room lights: soft discs with a slightly brighter rim, like a fast lens's bokeh
-const roomBokeh = new THREE.Group(); scene.add(roomBokeh);
+const roomBokeh = new THREE.Group(); roomBokeh.visible = false; scene.add(roomBokeh);
 {
   const disc = (() => { const c = cnv(128, 128), g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 62);
     gr.addColorStop(0, 'rgba(255,255,255,.55)'); gr.addColorStop(.72, 'rgba(255,255,255,.62)'); gr.addColorStop(.86, 'rgba(255,255,255,.9)'); gr.addColorStop(.95, 'rgba(255,255,255,.25)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
