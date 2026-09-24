@@ -629,8 +629,8 @@ function loop() {
   da.needsUpdate = true; dust.material.opacity = .02 + ledK * .12 + lampK * .04;
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
   if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
-  if (tankView && !saverOn) { // fit the whole tank front in view, eye level, looking straight in
-    const t = Math.tan(camera.fov * Math.PI / 360), d = Math.max(TH / 2 / t, TW / 2 / (t * camera.aspect)) * .92, y = TH * .42;
+  if (tankView && !saverOn) { // look straight in through the front glass
+    const t = Math.tan(camera.fov * Math.PI / 360), d = Math.min(TH / 2 / t, TW / 2 / (t * camera.aspect)) * .97, y = TH / 2; // 'cover' fit: the glass always fills the window, no floor in front
     controls.target.set(0, y, 0); camera.position.lerp(camPrev.set(0, y, TD / 2 + d), clamp(dt * 3, 0, 1)); }
   if (saverOn && spider) { // new shot every ~14 s: angle, height and distance drift smoothly while the camera circles
     saverT -= dt; if (saverT <= 0) { saverT = rand(10, 18); const s = spider.span || 10; saverShot = { el: rand(.18, .75), r: s * rand(1.3, 3.2) + 6, spin: rand(.03, .08) * (Math.random() < .5 ? -1 : 1) }; }
