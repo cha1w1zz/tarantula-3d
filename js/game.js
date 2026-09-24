@@ -461,7 +461,7 @@ const fxaa = new THREE.ShaderPass(THREE.FXAAShader); composer.addPass(fxaa);
 renderer.shadowMap.autoUpdate = false;              // shadows once per frame, not again for the DOF depth pass
 function setShadowRes(n) { [[led, n], [lamp, n / 2]].forEach(([l, s]) => { if (l.shadow.mapSize.x !== s) { l.shadow.mapSize.set(s, s); if (l.shadow.map) { l.shadow.map.dispose(); l.shadow.map = null; } } }); }
 function resize() {
-  const hi = quality === 'high', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 2) : Math.min(devicePixelRatio, 1.5);
+  const hi = quality === 'high', lo = quality === 'min', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 2) : lo ? Math.min(devicePixelRatio, 1) * .75 : Math.min(devicePixelRatio, 1.25);
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
   camera.aspect = w / h;
   camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64);   // portrait phones: widen so the tank still fits
@@ -470,6 +470,8 @@ function resize() {
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
   bokeh.enabled = hi; bloom.enabled = hi;
   setShadowRes(hi ? 2048 : 1024);
+  led.castShadow = lamp.castShadow = !lo;           // lowest mode: no shadows at all
+  setMeadowDensity(hi ? 1 : lo ? .35 : .6);
 }
 addEventListener('resize', resize);
 
@@ -512,7 +514,8 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
-$('tQual').onclick = e => { quality = quality === 'high' ? 'low' : 'high'; e.currentTarget.textContent = quality === 'high' ? '✨ ภาพ: สูง' : '⚡ ภาพ: เร็ว'; resize(); };
+const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
+$('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
 function mistFx() {
   for (let i = 0; i < 90; i++) { const m = new THREE.Mesh(dropGeo, dropMat); m.scale.set(1, 2.2, 1);

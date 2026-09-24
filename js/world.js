@@ -815,6 +815,14 @@ const TURF_TEX = alphaShape(16, 64, (g, w, h) => { const gr = g.createLinearGrad
     new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .25), mid: new V3(0, .6, .09), low: new V3(0, .35, .03), k: 70, c: 11, gpuWind: true });
   foliage[foliage.length - 1].mesh.castShadow = false;   // a carpet this dense would only darken itself; it still receives shadows
 }
+// graphics setting: thin the meadow by hiding a share of blades (zero scale); keep = 1 shows all
+const MEADOW = foliage[foliage.length - 1], MEADOW_M = [];
+{ const m = new THREE.Matrix4(); for (let i = 0; i < MEADOW.mesh.count; i++) { MEADOW.mesh.getMatrixAt(i, m); MEADOW_M.push(m.clone()); } }
+function setMeadowDensity(keep) {
+  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  MEADOW_M.forEach((m, i) => MEADOW.mesh.setMatrixAt(i, frac(i * .618034) < keep ? m : zero));
+  MEADOW.mesh.instanceMatrix.needsUpdate = true;
+}
 // dry leaf litter, curled
 {
   const g = new THREE.PlaneGeometry(1, 2, 6, 10); g.rotateX(-Math.PI / 2);
