@@ -932,11 +932,39 @@ const lampGlow = new THREE.PointLight(0xff7a30, 0, 14, 2); lampGlow.position.set
 const moon = new THREE.DirectionalLight(0x7d98d8, 0); moon.position.set(-40, 50, 30); scene.add(moon);
 const rim = new THREE.DirectionalLight(0xffdcb4, LIGHT_BASE.rim); rim.position.set(10, 22, -70); scene.add(rim);
 
-/* dust motes in the beam */
-const dustN = 320, dust = (() => { const g = new THREE.BufferGeometry(), a = new Float32Array(dustN * 3);
+/* god rays: thin additive sheets under the LED bar + a soft cone under the heat lamp.
+   Fade toward the floor, soft edges, slow drifting streaks; sheets seen edge-on vanish (facing term). game.js sets uI. */
+const BEAM_U = { uTime: { value: 0 } };
+function beamMat(color) {
+  return new THREE.ShaderMaterial({ uniforms: { uTime: BEAM_U.uTime, uI: { value: 0 }, uCol: { value: new THREE.Color(color) } },
+    vertexShader: `varying vec2 vUv; varying float vFace; void main(){ vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0);
+      vec3 n = normalize(mat3(modelMatrix) * normal); vFace = abs(dot(n, normalize(cameraPosition - wp.xyz)));
+      gl_Position = projectionMatrix * viewMatrix * wp; }`,
+    fragmentShader: `uniform float uTime, uI; uniform vec3 uCol; varying vec2 vUv; varying float vFace;
+      void main(){ float edge = smoothstep(0.0, .25, vUv.x) * smoothstep(1.0, .75, vUv.x);
+        float fall = pow(vUv.y, 1.6);
+        float streak = .55 + .45 * sin(vUv.x * 23.0 + uTime * .23) * sin(vUv.x * 9.0 - uTime * .17 + vUv.y * 2.0);
+        float a = uI * edge * fall * streak * smoothstep(.05, .6, vFace);
+        gl_FragColor = vec4(uCol * a, 1.0); }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false });
+}
+const beams = new THREE.Group(), ledBeamMat = beamMat(0xe8efff), lampBeamMat = beamMat(0xff9a4a);
+{
+  const g = new THREE.PlaneGeometry(TW * .78 / 3, TH); g.translate(0, TH / 2, 0);
+  for (let i = 0; i < 5; i++) { const m = new THREE.Mesh(g, ledBeamMat);
+    m.position.set(lerp(-TW * .3, TW * .3, i / 4), 0, -5 + rand(-1.4, 1.4)); m.rotation.set(rand(-.06, .06), rand(-.35, .35), 0); beams.add(m); }
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 11, TH, 32, 1, true), lampBeamMat);
+  c.geometry.translate(0, -TH / 2, 0); c.position.set(-14, TH + .4, 2); c.rotation.x = -.08; beams.add(c);
+  beams.renderOrder = 2; scene.add(beams);
+}
+
+/* dust motes in the beam: soft round specks */
+const dustN = 600, dust = (() => { const g = new THREE.BufferGeometry(), a = new Float32Array(dustN * 3);
   for (let i = 0; i < dustN; i++) { a[i * 3] = rand(-TW / 2, TW / 2); a[i * 3 + 1] = rand(2, TH); a[i * 3 + 2] = rand(-TD / 2, TD / 2); }
   g.setAttribute('position', new THREE.BufferAttribute(a, 3));
-  return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff1d6, size: .14, transparent: true, opacity: .4, depthWrite: false })); })();
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64; const cx = cv.getContext('2d'), gr = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); cx.fillStyle = gr; cx.fillRect(0, 0, 64, 64);
+  return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff1d6, size: .25, map: new THREE.CanvasTexture(cv), transparent: true, opacity: .4, depthWrite: false, blending: THREE.AdditiveBlending })); })();
 scene.add(dust);
 
 function applyEnv(level) { envMats.forEach(m => { m.envMapIntensity = m.userData.env * level; }); }

@@ -2,7 +2,7 @@
 /* =====================================================================
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
-let tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
+let haze = 0, cine = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
@@ -444,13 +444,13 @@ const GradeShader = {
     void main(){
       vec3 col = texture2D(tDiffuse, vUv).rgb;
       float l = dot(col, vec3(.2126,.7152,.0722));
-      col = mix(col, col * vec3(.92,.98,1.08), (1.0 - smoothstep(0.0,.18,l)) * (.3 + uNight * .4));   // cool shadows (bluer at night)
-      col = mix(col, col * vec3(1.06,1.0,.92), smoothstep(.25,.9,l) * .3);                          // warm highlights
+      col = mix(col, col * vec3(.9,.99,1.08), (1.0 - smoothstep(0.0,.18,l)) * (.38 + uNight * .4));   // cool shadows (bluer at night)
+      col = mix(col, col * vec3(1.08,1.0,.9), smoothstep(.25,.9,l) * .34);                          // warm highlights
       col = mix(vec3(l), col, 1.06 - uNight * .2);                                                   // gentle saturation, less at night
       col = LinearTosRGB(vec4(max(col, 0.0), 1.0)).rgb;
       col = col * col * (3.0 - 2.0 * col) * .12 + col * .88;                                         // soft S-curve
       vec2 q = vUv - .5; float v = smoothstep(.9, .28, length(q * vec2(uRes.x / uRes.y * .62, 1.0)));
-      col *= mix(.62, 1.0, v);
+      col *= mix(.5, 1.0, v);
       col += (hash(vUv * uRes + fract(uTime * 7.1) * 91.0) - .5) * .018;
       gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
     }`,
@@ -459,7 +459,7 @@ const composer = new THREE.EffectComposer(renderer, new THREE.WebGLRenderTarget(
 composer.addPass(new THREE.RenderPass(scene, camera));
 const bokeh = new THREE.BokehPass(scene, camera, { focus: 50, aperture: .0002, maxblur: .008, width: 2, height: 2 });
 { // depth for DOF: skip glass, dust and additive FX so they don't punch sharp holes in the blur
-  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, roomBokeh, ...ripples, ...drops];
+  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, ...ripples, ...drops];
   bokeh.render = function (...a) { const h = hide(), vis = h.map(o => o.visible); h.forEach(o => o.visible = false); orig(...a); h.forEach((o, i) => o.visible = vis[i]); };
 }
 composer.addPass(bokeh);
@@ -472,7 +472,7 @@ function resize() {
   const hi = quality === 'high', lo = quality === 'min', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 2) : lo ? Math.min(devicePixelRatio, 1) * .75 : Math.min(devicePixelRatio, 1.25);
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
   camera.aspect = w / h;
-  camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64);   // portrait phones: widen so the tank still fits
+  camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64); if (cine) camera.fov = Math.max(camera.fov, 50);   // portrait phones: widen so the tank still fits
   camera.updateProjectionMatrix();
   fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
@@ -522,7 +522,7 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
   // screensaver: fullscreen, no UI, slow cinematic orbit around the spider; any tap/key exits
-  const saver = (on, full) => { saverOn = on; d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
+  const saver = (on, full) => { saverOn = on; if (on && cine) setCine(false); d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
     if (on) { saverT = 0; if (full && !fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
   $('tSaver').onclick = e => { e.stopPropagation(); saver(true, true); };
   $('tSaverWin').onclick = e => { e.stopPropagation(); saverAt = performance.now(); saver(true, false); };
@@ -533,12 +533,16 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   d.addEventListener('fullscreenchange', fsOff); d.addEventListener('webkitfullscreenchange', fsOff);
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
 // locked front view: the screen acts as the terrarium's front glass
-$('tTank').onclick = e => { tankView = !tankView; e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
+const CAM0 = { pol: controls.maxPolarAngle };
+function setCine(on) { cine = on; $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
+$('tCine').onclick = () => { setCine(!cine); if (cine && tankView) $('tTank').click(); };
+$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
   if (tankView && follow) $('tFollow').click(); };
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
 $('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
 function mistFx() {
+  haze = 1;
   for (let i = 0; i < 90; i++) { const m = new THREE.Mesh(dropGeo, dropMat); m.scale.set(1, 2.2, 1);
     m.position.set(rand(-TW / 2 + 2, TW / 2 - 2), rand(TH * .7, TH), rand(-TD / 2 + 2, TD / 2 - 2)); m.userData.v = rand(8, 16); scene.add(m); drops.push(m); }
 }
@@ -630,7 +634,11 @@ function loop() {
   water.material.normalMap.offset.set(now * .01, now * .007);
   const da = dust.geometry.attributes.position;
   for (let i = 0; i < dustN; i++) { da.array[i * 3 + 1] += Math.sin(now * .3 + i) * dt * .15; da.array[i * 3] += Math.cos(now * .21 + i * 1.3) * dt * .12; }
-  da.needsUpdate = true; dust.material.opacity = .02 + ledK * .12 + lampK * .04;
+  da.needsUpdate = true; dust.material.opacity = .03 + ledK * .3 + lampK * .12;
+  // god rays: stronger in humid air, right after misting, and at night
+  haze = Math.max(0, haze - dt / 40); BEAM_U.uTime.value = now; beams.visible = quality !== 'min';
+  const air = (.3 + .7 * S.hum / 100) * (.35 + .65 * haze) * (1 - .55 * day);
+  ledBeamMat.uniforms.uI.value = ledK * air * .09; lampBeamMat.uniforms.uI.value = lampK * air * .07;
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
   if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
   if (tankView && !saverOn) { // look straight in through the front glass
@@ -642,6 +650,12 @@ function loop() {
     let az = Math.atan2(off.x, off.z) + saverShot.spin * dt, el = Math.asin(clamp(off.y / r0, -1, 1));
     const k = clamp(dt * .25, 0, 1); el = lerp(el, saverShot.el, k); const r = lerp(r0, saverShot.r, k);
     camera.position.set(controls.target.x + Math.sin(az) * Math.cos(el) * r, controls.target.y + Math.sin(el) * r, controls.target.z + Math.cos(az) * Math.cos(el) * r); }
+  if (cine && spider && !tankView && !saverOn) { // low, close, at the spider's eye level
+    const s = spider.span || 10, p = spider.root.position, k2 = clamp(dt * 2, 0, 1);
+    controls.target.lerp(p, k2); const off = camPrev.copy(camera.position).sub(controls.target); off.y = 0;
+    if (off.lengthSq() < .01) off.set(0, 0, 1); off.setLength(s * 1.6);
+    const cx = p.x + off.x, cz = p.z + off.z, cy = Math.max(p.y + s * .35, groundY(cx, cz) + 1);
+    camera.position.lerp(camPrev.set(cx, cy, cz), k2); }
   controls.update();
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
