@@ -5,7 +5,7 @@
 // ---------- 0. บรรยากาศ: ยกเลิกโทนเขียวทั้งฉาก เหลือหมอกบาง ๆ ใส ๆ ----------
 (() => {
   BG_DAY.set(0x1d262b).convertSRGBToLinear(); BG_NIGHT.set(0x06090d).convertSRGBToLinear();
-  scene.fog.density = .005;
+  scene.fog.density = .0028;
   hemi.color.set(0xd4e4ee); hemi.groundColor.set(0x33281e);
   led.color.set(0xeef6ff); LIGHT_BASE.rim = .7; rim.color.set(0xffc690);   // แสงขอบอุ่นช่วยแยกตัวบึ้งออกจากพื้น
   bloom.strength = .45; bloom.radius = .55; bloom.threshold = .8;
@@ -124,13 +124,14 @@ const leafMat = (tex, key, emi) => track(new THREE.MeshStandardMaterial({ map: t
   const cal = [], pot = [], fit = [];
   let g = 0;
   // คาลาเทีย: กลุ่มใหญ่ด้านหลัง (กรอบฉาก) + กลุ่มกลางข้างขอน
-  [[-3, -15.5, 4.6, 16], [1.5, -16.5, 3.6, 11], [15.5, -16.2, 4.2, 14], [28, -16, 3.4, 10], [-27.5, -15.5, 3.2, 9]]
+  const at = list => list.map(([x, z, s, n]) => [...nat(x, z), s * NS, n]);   // old 60×40 layout → the garden part of the big tank
+  at([[-3, -15.5, 4.6, 16], [1.5, -16.5, 3.6, 11], [15.5, -16.2, 4.2, 14], [28, -16, 3.4, 10], [-27.5, -15.5, 3.2, 9]])
     .forEach(([x, z, s, n]) => plant(cal, x, z, n, s, .25, 1.05, g++));
   // พลูด่าง: กลุ่มระดับกลาง ใบห้อยต่ำ
-  [[-27.5, 3, 2.4, 14], [26.5, 1.5, 2.3, 13], [-11.5, -1.5, 1.9, 9], [5, 7.5, 1.7, 9]]
+  at([[-27.5, 3, 2.4, 14], [26.5, 1.5, 2.3, 13], [-11.5, -1.5, 1.9, 9], [5, 7.5, 1.7, 9]])
     .forEach(([x, z, s, n]) => plant(pot, x, z, n, s, .6, 1.35, g++));
   // ฟิตโตเนีย: กอเล็กด้านหน้า
-  [[-21, 17.3, 2.6, 14], [9.5, 17.4, 2.3, 12], [-6.5, 18, 2, 9]]
+  at([[-21, 17.3, 2.6, 14], [9.5, 17.4, 2.3, 12], [-6.5, 18, 2, 9]])
     .forEach(([x, z, s, n]) => plant(fit, x, z, n, s, .7, 1.4, g++));
   const add = (list, tex, shape, k, key, under) => {
     if (!list.length) return;
@@ -143,28 +144,28 @@ const leafMat = (tex, key, emi) => track(new THREE.MeshStandardMaterial({ map: t
   add(fit, FITTONIA_TEX, { stem: .12, arch: .35, vee: .25, curl: .3, wave: 0 }, 50, 'fit', ['.3, .2, .22', .5]);
 }
 
-// ---------- 2. หญ้า: กอเล็ก ๆ ใบโค้งพลิ้ว จำนวนเหลือ ~35% ของเดิม เห็นดินระหว่างกอ โคนมืด ปลายสว่าง ----------
+// ---------- 2. หญ้า: กอใบโค้งพลิ้ว เห็นดินระหว่างกอ โคนมืด ปลายสว่าง ----------
+// ตู้ใหญ่ขึ้น 4 เท่า: กอห่างขึ้น GS เท่า ใบใหญ่ขึ้น GS เท่า จำนวนใบรวมน้อยกว่าตู้เดิม (~8.7k ใบ)
 const GRASS_TEX = alphaShape(16, 128, (g, w, h) => { const gr = g.createLinearGradient(0, h, 0, 0);
   gr.addColorStop(0, '#132319'); gr.addColorStop(.3, '#35603f'); gr.addColorStop(.8, '#7eaa86'); gr.addColorStop(1, '#b2d2ac'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
 let GRASS = null;
 {
-  MEADOW.mesh.visible = false; dropFoliage(MEADOW);                    // ทุ่งหญ้าพรมเดิม (~21k ใบ) ปิดไป
   // ใบหญ้า: เรียวแหลม โค้งพลิ้วเป็นรูปตัว S เล็กน้อย
   const bg = new THREE.PlaneGeometry(.13, 1, 1, 6); bg.translate(0, .5, 0);
   { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .88)); p.setZ(i, y * y * .55 + Math.sin(y * 3.2) * .05); }
     const n = bg.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); }   // แสงแบบสนามหญ้า ไม่เป็นแผ่นการ์ด
-  const list = [], cell = 2.5;
+  const list = [], GS = 1.9, cell = 2.5 * GS;
   // จุดกอ: ตารางสุ่มห่าง ~1.1 แล้วคัดด้วย noise ให้เป็นหย่อม ๆ (แน่นบางที่ โล่งบางที่)
-  for (let x = -TW / 2 + 1.5; x < TW / 2 - 1.5; x += 1.1) for (let z = -TD / 2 + 1.5; z < TD / 2 - 1.5; z += 1.1) {
-    const cx = x + lr(-.45, .45), cz = z + lr(-.45, .45);
-    const m = fbm(cx * .07, 3.3, cz * .07) * 2.4 + fbm(cx * .25, 5.1, cz * .25) * .6;
-    if (m < .02 || LR() > sstep(.02, .35, m) || !okSpot(cx, cz, .5)) continue;
-    const n = 12 + (LR() * 10 | 0) + (m > .35 ? 6 : 0), size = lr(.9, 1.5) * (.65 + .5 * sstep(.02, .5, m)) * lerp(1.2, .8, clamp((cz + TD / 2) / TD, 0, 1));
+  for (let x = -TW / 2 + 1.5; x < TW / 2 - 1.5; x += 1.1 * GS) for (let z = -TD / 2 + 1.5; z < TD / 2 - 1.5; z += 1.1 * GS) {
+    const cx = x + lr(-.45, .45) * GS, cz = z + lr(-.45, .45) * GS, u = cx / GS, v = cz / GS;   // noise in the old scale → same patch shapes, just bigger
+    const m = fbm(u * .07, 3.3, v * .07) * 2.4 + fbm(u * .25, 5.1, v * .25) * .6;
+    if (m < .02 || LR() > sstep(.02, .35, m) || !okSpot(cx, cz, .5 * GS)) continue;
+    const n = 7 + (LR() * 6 | 0) + (m > .35 ? 3 : 0), size = GS * lr(.9, 1.5) * (.65 + .5 * sstep(.02, .5, m)) * lerp(1.2, .8, clamp((cz + TD / 2) / TD, 0, 1));
     const hue = .36 + fbm(cx * .1, 9.7, cz * .1) * .1, gid = Math.floor((cx + TW / 2) / cell) * 100 + Math.floor((cz + TD / 2) / cell);
     for (let b = 0; b < n; b++) {
-      const a = LR() * 6.283, r = Math.sqrt(LR()) * .28, px = cx + Math.sin(a) * r, pz = cz + Math.cos(a) * r, h = size * lr(.7, 1.35) * (1 - r * 1.2);
-      dummy.position.set(px, groundY(px, pz) - .04, pz); dummy.rotation.set(lr(.05, .3) + r * 1.4, a + lr(-.5, .5), lr(-.2, .2));   // ใบเอนออกจากกลางกอ
-      dummy.scale.set(lr(.8, 1.2), h, h); dummy.updateMatrix();
+      const a = LR() * 6.283, rn = Math.sqrt(LR()) * .28, r = rn * GS, px = cx + Math.sin(a) * r, pz = cz + Math.cos(a) * r, h = size * lr(.7, 1.35) * (1 - rn * 1.2);
+      dummy.position.set(px, groundY(px, pz) - .04, pz); dummy.rotation.set(lr(.05, .3) + rn * 1.4, a + lr(-.5, .5), lr(-.2, .2));   // ใบเอนออกจากกลางกอ
+      dummy.scale.set(lr(.8, 1.2) * GS, h, h); dummy.updateMatrix();
       const dry = LR() < .05;
       list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(dry ? .1 : hue + lr(-.015, .015), dry ? .25 : lr(.2, .34), dry ? lr(.5, .6) : lr(.4, .55)).convertSRGBToLinear(), g: gid });
     }
@@ -219,8 +220,8 @@ let GRASS = null;
     }
   });
   // ขอน: ด้านบนของเปลือก เป็นแถบ ๆ ตามแนวยาว
-  const yc = soilY(LOG.c.x, LOG.c.z) - 1.05;
-  for (let t = 0; t < 9000; t++) {
+  const yc = LOG.y;
+  for (let t = 0; t < 9000 * NS; t++) {
     const al = lr(-LOG.len / 2 + .4, LOG.len / 2 - .4), ph = lg() * 1.1, patch = fbm(al * .18, ph * 1.5, 7.7) * 1.4 + .15 - Math.abs(ph) * .3;
     if (patch < .12) continue;
     const R = LOG.R + .35, w = logWorld(al, Math.sin(ph) * R), n = new V3(-LOG.a.z * Math.sin(ph), Math.cos(ph), LOG.a.x * Math.sin(ph)).normalize();
@@ -244,7 +245,7 @@ let GRASS = null;
   const logSide = (x, z) => { const q = logLocal(x, z); return Math.abs(q.al) < LOG.len / 2 + 1 && Math.abs(q.sd) < LOG.R + 1; };
   // ใบไม้แห้ง: น้ำตาล/แทน/เทาอมเขียว เป็นหลัก, ส้มแดง ~8%
   const leaves = [];
-  [[-12, 6.5, 12, 1.4], [1.5, -3.5, 9, 1.1], [-25, -1, 10, 1.3], [14.5, 4, 8, 1], [-1.5, 17.5, 7, 1], [22, -4.5, 9, 1.1], [-19, 4, 6, .8]].forEach(([cx, cz, n, sp]) => {
+  [[-12, 6.5, 12, 1.4], [1.5, -3.5, 9, 1.1], [-25, -1, 10, 1.3], [14.5, 4, 8, 1], [-1.5, 17.5, 7, 1], [22, -4.5, 9, 1.1], [-19, 4, 6, .8]].map(([x, z, n, sp]) => [...nat(x, z), n, sp * NS]).forEach(([cx, cz, n, sp]) => {
     for (let i = 0; i < n; i++) { const x = cx + lg() * sp, z = cz + lg() * sp; if (!okSpot(x, z, .3) || logSide(x, z)) continue;
       dummy.position.set(x, groundY(x, z) + .05 + i * .006, z); dummy.rotation.set(lr(-.15, .15), LR() * 6.3, lr(-.15, .15)); dummy.scale.setScalar(lr(1.3, 2.4) * depthScale(z)); dummy.updateMatrix();
       const r = LR();
@@ -257,7 +258,7 @@ let GRASS = null;
   const tg = new THREE.CylinderGeometry(.55, 1, 1, 7, 8); tg.rotateZ(Math.PI / 2);
   { const p = tg.attributes.position; for (let j = 0; j < p.count; j++) p.setY(j, p.getY(j) + Math.sin(p.getX(j) * 2.4) * .35); tg.computeVertexNormals(); }
   const twigs = [];
-  [[-13.5, 8, 4], [3, -2.5, 3], [21, -3, 4], [-24, 1.5, 3], [7.5, 15.5, 3]].forEach(([cx, cz, n]) => {
+  [[-13.5, 8, 4], [3, -2.5, 3], [21, -3, 4], [-24, 1.5, 3], [7.5, 15.5, 3]].map(([x, z, n]) => [...nat(x, z), n]).forEach(([cx, cz, n]) => {
     const base = LR() * 3.14;
     for (let i = 0; i < n; i++) { const x = cx + lg() * .8, z = cz + lg() * .8; if (!okSpot(x, z, .8)) continue;
       const len = lr(2.5, 6) * (i ? .7 : 1), r = lr(.09, .18);

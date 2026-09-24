@@ -61,7 +61,7 @@ function antenna(parent, from, dir, len, mat) { // pivots in its socket so it ca
 class Prey {
   constructor(kind) {
     this.kind = kind; this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
-    let x, z, k = 0; do { x = rand(-12, 22); z = rand(-6, 14); } while ((!clearSpot(x, z) || (spider && Math.hypot(x - spider.pos.x, z - spider.pos.z) < spider.span * 1.6)) && k++ < 60);
+    let x, z, k = 0; do { x = rand(-TW / 2 + 3, TW / 2 - 3); z = rand(-TD / 2 + 3, TD / 2 - 3); } while ((!clearSpot(x, z) || (spider && Math.hypot(x - spider.pos.x, z - spider.pos.z) < spider.span * 1.6)) && k++ < 60);
     this.pos = new V3(x, 0, z); this.yaw = rand(0, 6.3); this.face = this.yaw; this.v = 0; this.t = rand(0, 2); this.hop = 0; this.vy = 0; this.y = 0;
     this.crouch = 0; this.kick = 0; this.chirp = 0; this.pitch = 0; this.hindA = .1; this.tibA = 0; this.ph = rand(0, 6.3);
     const g = this.mesh = new THREE.Group(); g.rotation.order = 'YXZ'; this.legs = []; this.ant = []; this.hind = [];
@@ -640,7 +640,7 @@ function loop() {
   rim.intensity = lerp(.03, B.rim, day);
   { // sun: rises on the left (east) at 6:00, overhead at noon, sets on the right at 18:00; low sun is warm and dim
     const h = S.hour % 24, a = clamp((h - 6) / 12, 0, 1) * Math.PI, up = Math.sin(a);
-    sun.position.set(-Math.cos(a) * 80, 8 + up * 75, 45);
+    sun.position.set(-Math.cos(a) * 150, 15 + up * 140, 85);
     sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up); }
   scene.background.copy(BG_NIGHT).lerp(BG_DAY, day); scene.fog.color.copy(scene.background);
   grade.uniforms.uNight.value = (1 - day) * (1 - .7 * ledK);

@@ -25,13 +25,13 @@ renderer.physicallyCorrectLights = false;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0);
 scene.fog = new THREE.FogExp2(scene.background.getHex(), 0.0042);
-const camera = new THREE.PerspectiveCamera(36, 1, 0.2, 600);
-camera.position.set(4, 34, 58);
+const camera = new THREE.PerspectiveCamera(36, 1, 0.2, 1100);
+camera.position.set(6, 72, 130);
 const controls = new THREE.OrbitControls(camera, canvas);
 controls.target.set(0, 3, 0);
 controls.enableDamping = true; controls.dampingFactor = .07;
 controls.maxPolarAngle = Math.PI * 0.46;
-controls.minDistance = 7; controls.maxDistance = 120;
+controls.minDistance = 7; controls.maxDistance = 230;
 const pmrem = new THREE.PMREMGenerator(renderer);
 /* image-based light: a dim warm room with the terrarium LED bar overhead, a cool window and a
    table lamp. Much darker than RoomEnvironment so glass/water reflect shapes instead of going milky. */
@@ -278,12 +278,17 @@ const RIPPLE_TEX = (() => { const s = 256, c = cnv(s, s), g = c.getContext('2d')
   return mkTex(heightToNormal(c, 3), false, 2, 2); })();
 
 /* ---------- terrain ---------- */
-const TW = 60, TD = 40, TH = 34;
-const LOG = { c: new V3(-18, 0, -9), ang: .4, len: 17, R: 6.3 };
+const TW = 120, TD = 80, TH = 56;
+// the hand-placed 60×40 terrarium layout (rocks, log, dish, plants) is scaled by NS and anchored in the front-left corner;
+// nat(x, z) maps an old layout point into the tank. The rest (back strip + right strip) is the ruined city zone (inCity)
+const NS = 1.3, NX = -TW / 2 + 30 * NS, NZ = TD / 2 - 20 * NS;
+const nat = (x, z) => [x * NS + NX, z * NS + NZ], natV = (x, z) => new V3(x * NS + NX, 0, z * NS + NZ);
+const inCity = (x, z) => z < NZ - 20 * NS + 1 || x > NX + 30 * NS - 1;
+const LOG = { c: natV(-18, -9), ang: .4, len: 17 * NS, R: 6.3 * NS };
 LOG.a = new V3(Math.cos(LOG.ang), 0, Math.sin(LOG.ang));
-const BURROW = LOG.c.clone().addScaledVector(LOG.a, 5);
-const LOG_ENTRY = LOG.c.clone().addScaledVector(LOG.a, 12.5);
-const dishPos = new V3(18, 0, 9);
+const BURROW = LOG.c.clone().addScaledVector(LOG.a, 5 * NS);
+const LOG_ENTRY = LOG.c.clone().addScaledVector(LOG.a, 12.5 * NS);
+const dishPos = natV(18, 9);
 const soilBase = (x, z) => 1.5 + fbm(x * .05, 0.3, z * .05, 3) * 2.4 + fbm(x * .3, 7.1, z * .3, 2) * .3 - z / TD * 1.4;
 const DISH_Y = soilBase(dishPos.x, dishPos.z) - .35;          // bottom of the water dish
 function soilY(x, z) {
@@ -297,7 +302,8 @@ function soilY(x, z) {
 // flat: slab with a cut top (bedded stone); small companion stones make the big ones read as a natural group
 const ROCKS = [{ x: 6, z: -9, r: 5.4, h: 4.6, s: 1 }, { x: -4, z: 12, r: 3.3, h: 2.1, s: 2, flat: 1 }, { x: 24, z: -11, r: 4.2, h: 3.4, s: 3 },
                { x: -26, z: 10, r: 3, h: 2.3, s: 4 }, { x: 12, z: -2, r: 2.5, h: 1.5, s: 5, flat: 1 }, { x: -8, z: 3, r: 2, h: 1.2, s: 6 },
-               { x: 10.5, z: -12.5, r: 1.7, h: 1.3, s: 7 }, { x: 19.5, z: -8, r: 1.4, h: .9, s: 8, flat: 1 }, { x: -1, z: 14.5, r: 1.3, h: .8, s: 9 }, { x: -23, z: 12.5, r: 1.2, h: .9, s: 10 }];
+               { x: 10.5, z: -12.5, r: 1.7, h: 1.3, s: 7 }, { x: 19.5, z: -8, r: 1.4, h: .9, s: 8, flat: 1 }, { x: -1, z: 14.5, r: 1.3, h: .8, s: 9 }, { x: -23, z: 12.5, r: 1.2, h: .9, s: 10 }]
+  .map(k => { const [x, z] = nat(k.x, k.z); return Object.assign(k, { x, z }); });
 // each rock carries a top-down height grid rasterised from its own mesh (built in the rocks section), so the walkable
 // surface is exactly the visible one. Cells store max(rock, soil), which blends seamlessly into soilY at the grid edge.
 function gridY(g, x, z) {
@@ -317,7 +323,7 @@ function seeded(s) { return () => { s = s + 0x6D2B79F5 | 0; let t = Math.imul(s 
 const envMats = new Set();
 function track(m, env) { m.userData.env = env == null ? .6 : env; envMats.add(m); return m; }
 
-const soilGeo = new THREE.PlaneGeometry(TW, TD, 170, 114); soilGeo.rotateX(-Math.PI / 2);
+const soilGeo = new THREE.PlaneGeometry(TW, TD, 300, 200); soilGeo.rotateX(-Math.PI / 2);
 {
   const p = soilGeo.attributes.position, col = [];
   for (let i = 0; i < p.count; i++) {
@@ -336,7 +342,7 @@ const soilGeo = new THREE.PlaneGeometry(TW, TD, 170, 114); soilGeo.rotateX(-Math
 const soil = new THREE.Mesh(soilGeo, track(new THREE.MeshStandardMaterial({ map: SOIL.map, normalMap: SOIL.normalMap, normalScale: new V2(1.1, 1.1), vertexColors: true, roughness: .97 }), .35));
 soil.receiveShadow = true; scene.add(soil);
 { // substrate cross-section seen through the front glass
-  const g = new THREE.PlaneGeometry(TW, 6, 170, 1), p = g.attributes.position;
+  const g = new THREE.PlaneGeometry(TW, 6, 300, 1), p = g.attributes.position;
   for (let i = 0; i < p.count; i++) if (p.getY(i) > 0) p.setY(i, soilY(p.getX(i), TD / 2 - .05) + .02); else p.setY(i, -.6);
   const m = new THREE.Mesh(g, track(new THREE.MeshStandardMaterial({ map: SOIL.map, normalMap: SOIL.normalMap, color: 0x8a7a6a, roughness: 1 }), .3)); m.position.z = TD / 2 - .05; scene.add(m);
 }
@@ -498,7 +504,8 @@ const LOG_RI = LOG.R - 1.05;                                   // inner (rotted-
   // cylinder axis Y → lay along X; arch opens downward
   const inner0 = new THREE.Group(); inner0.add(om, im, ...ends); inner0.rotation.z = Math.PI / 2;
   g.add(inner0);
-  g.position.set(LOG.c.x, soilY(LOG.c.x, LOG.c.z) - 1.05, LOG.c.z); g.rotation.y = -LOG.ang;
+  LOG.y = soilY(LOG.c.x, LOG.c.z) - 1.05 * NS;                  // axis height: half-buried
+  g.position.set(LOG.c.x, LOG.y, LOG.c.z); g.rotation.y = -LOG.ang;
   scene.add(g);
   // burrow mouth under the log: dark pit that fades into the soil, lined with a sheet of silk
   const holeTex = (() => { const c = cnv(128, 128), q = c.getContext('2d'), gr = q.createRadialGradient(64, 64, 0, 64, 64, 64);
@@ -554,7 +561,7 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
     wrap(w, h, x, y, r, (X, Y) => blob(ga, X, Y, r, hsl(30, 35, rand(12, 22)), .7)); }
 }, 2.4);
 {
-  const patches = [[15, -16, 7], [27, -2, 4.5], [-4, -17, 6], [-27, 0, 4], [3, 16, 5], [26, 15, 4.5], [-14, 15, 6], [-1, 4, 3], [16, 3, 2.8]];
+  const patches = [[15, -16, 7], [27, -2, 4.5], [-4, -17, 6], [-27, 0, 4], [3, 16, 5], [26, 15, 4.5], [-14, 15, 6], [-1, 4, 3], [16, 3, 2.8]].map(([x, z, r]) => [...nat(x, z), r * NS]);
   const N = 6, H = .3, soilC = new THREE.Color().setHSL(.07, .3, .2).convertSRGBToLinear();
   const shellTex = MOSS_STRANDS.clone(); shellTex.needsUpdate = true;
   // ragged edge: vertex alpha (coverage) × clumpy noise, alpha-tested → irregular tufts instead of a polygon outline
@@ -616,7 +623,7 @@ function fernSway(mat) {
   const lg = new THREE.PlaneGeometry(1, .38, 6, 1); lg.translate(.5, 0, 0);
   { const p = lg.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, -x * x * .12); } }
   lg.rotateX(-Math.PI / 2);
-  const ferns = [[24, -15, 9], [-2, -16.5, 8], [-25, 14, 7], [25, 13.5, 6.5], [13, -16.5, 6.5], [-27, -4, 6]];
+  const ferns = [[24, -15, 9], [-2, -16.5, 8], [-25, 14, 7], [25, 13.5, 6.5], [13, -16.5, 6.5], [-27, -4, 6]].map(([x, z, s]) => [...nat(x, z), s * NS]);
   const inst = [], stemMat = fernSway(track(new THREE.MeshStandardMaterial({ color: 0x24360f, roughness: .8 }), .25));
   ferns.forEach(([fx, fz, size]) => {
     const by = groundY(fx, fz);
@@ -724,9 +731,9 @@ function updateFoliage(dt, cols) {
 // clump sites: open soil, off the rocks, away from the log mouth, the dish and each other
 const plantSites = (() => {
   const R = seeded(4242), out = [];
-  for (let k = 0; k < 4000 && out.length < 24; k++) {
+  for (let k = 0; k < 4000 && out.length < 24; k++) {                 // in the garden part only: the city zone keeps its streets open
     const x = -TW / 2 + 3 + R() * (TW - 6), z = -TD / 2 + 3 + R() * (TD - 6);
-    if (!clearSpot(x, z) || onRock(x, z, 1.6) || Math.hypot(x - dishPos.x, z - dishPos.z) < 7 || out.some(p => Math.hypot(p[0] - x, p[1] - z) < 5.2)) continue;
+    if (!clearSpot(x, z) || inCity(x, z) || onRock(x, z, 1.6) || Math.hypot(x - dishPos.x, z - dishPos.z) < 7 || out.some(p => Math.hypot(p[0] - x, p[1] - z) < 5.2 * NS)) continue;
     out.push([x, z]);
   }
   return out;
@@ -735,7 +742,7 @@ const plantSites = (() => {
 {
   const bg = new THREE.PlaneGeometry(.2, 1, 1, 6); bg.translate(0, .5, 0);
   { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .92)); p.setZ(i, y * y * .5); } bg.computeVertexNormals(); }
-  const tufts = [[20, -5], [-10, 9], [8, 17], [-22, -17], [27, 6], [-3, -9], [13, 13], [-27, 5], [20, -17], [-15, -1], [4, -15], [-20, 17]];
+  const tufts = [[20, -5], [-10, 9], [8, 17], [-22, -17], [27, 6], [-3, -9], [13, 13], [-27, 5], [20, -17], [-15, -1], [4, -15], [-20, 17]].map(([x, z]) => nat(x, z));
   const list = [];
   tufts.forEach(([tx, tz], g) => { if (g % 2 || !clearSpot(tx, tz) || onRock(tx, tz, 1)) return; for (let b = 0; b < 22; b++) { const x = tx + gauss() * .7, z = tz + gauss() * .7;
     dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.4, .4), rand(0, 6.3), rand(-.4, .4)); const h = rand(2.2, 5.5); dummy.scale.set(1, h, h * .7); dummy.updateMatrix();
@@ -791,38 +798,8 @@ const OVAL_TEX = alphaShape(256, 512, (g, w, h) => {
   addFoliage(leafGeo(2, .55, .18, 0), mk(STRAP_TEX), cutoutDepth(STRAP_TEX, .5), strap, { tip: new V3(0, .75, .55), mid: new V3(0, .55, .2), low: new V3(0, .34, .07), k: 26, c: 7, wind: .03 });
   addFoliage(leafGeo(4, .3, .05, .5), mk(OVAL_TEX), cutoutDepth(OVAL_TEX, .5), oval, { tip: new V3(0, .87, .3), mid: new V3(0, .57, .1), low: new V3(0, .34, .04), k: 40, c: 9, wind: .02 });
 }
-// meadow: a dense carpet of short blades in broad drifts over the open soil, dark at the root and sunlit yellow-green at the
-// tips, with rolling wind waves (GPU) — anything walking through parts it like the other foliage
-const TURF_TEX = alphaShape(16, 64, (g, w, h) => { const gr = g.createLinearGradient(0, h, 0, 0);
-  gr.addColorStop(0, '#3a5424'); gr.addColorStop(.3, '#6a9a3c'); gr.addColorStop(.8, '#a6cc5e'); gr.addColorStop(1, '#d4e88e'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
-{
-  const g = new THREE.PlaneGeometry(.1, 1, 1, 3); g.translate(0, .5, 0);
-  { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .9)); p.setZ(i, y * y * .25); }
-    const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); }   // lit like a lawn, not like cards: every blade shares the sky normal
-  const R = seeded(9191), rr = (a, b) => a + R() * (b - a), step = matchMedia('(pointer: coarse)').matches ? .26 : .18, cell = 2.5, list = [];
-  for (let x = -TW / 2 + 1.2; x < TW / 2 - 1.2; x += step) for (let z = -TD / 2 + 1.2; z < TD / 2 - 1.2; z += step) {
-    const px = x + rr(-.5, .5) * step, pz = z + rr(-.5, .5) * step;
-    const m = fbm(px * .075, 3.3, pz * .075) * 2.2 + fbm(px * .3, 5.1, pz * .3) * .5 + .05;   // broad drifts with ragged edges
-    if (m < 0 || R() > sstep(0, .3, m) || !clearSpot(px, pz) || onRock(px, pz, .35)) continue;
-    const edge = sstep(0, .45, m), h = rr(.45, 1.1) * (.55 + .45 * edge) * (1 + fbm(px * .5, 8, pz * .5) * .5);
-    dummy.position.set(px, groundY(px, pz) - .04, pz); dummy.rotation.set(rr(-.35, .35), rr(0, 6.283), rr(-.35, .35)); dummy.scale.set(rr(.8, 1.25), h, h); dummy.updateMatrix();
-    const tone = fbm(px * .12, 9.7, pz * .12), dry = R() < .06;
-    list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(dry ? rr(.12, .15) : .235 + tone * .09 + rr(-.012, .012), dry ? .4 : .42 + rr(0, .14), dry ? rr(.58, .68) : .47 + tone * .3 + rr(-.05, .05)).convertSRGBToLinear(),
-      g: Math.floor((px + TW / 2) / cell) * 100 + Math.floor((pz + TD / 2) / cell) });
-  }
-  list.sort((a, b) => a.g - b.g);                        // clumps = 2.5-unit cells, so a spider only wakes the blades near it
-  addFoliage(g, track(new THREE.MeshStandardMaterial({ map: TURF_TEX, side: THREE.DoubleSide, roughness: .8 }), .3),
-    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .25), mid: new V3(0, .6, .09), low: new V3(0, .35, .03), k: 70, c: 11, gpuWind: true });
-  foliage[foliage.length - 1].mesh.castShadow = false;   // a carpet this dense would only darken itself; it still receives shadows
-}
-// graphics setting: thin the meadow by hiding a share of blades (zero scale); keep = 1 shows all
-const MEADOW = foliage[foliage.length - 1], MEADOW_M = [];
-{ const m = new THREE.Matrix4(); for (let i = 0; i < MEADOW.mesh.count; i++) { MEADOW.mesh.getMatrixAt(i, m); MEADOW_M.push(m.clone()); } }
-function setMeadowDensity(keep) {
-  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  MEADOW_M.forEach((m, i) => MEADOW.mesh.setMatrixAt(i, frac(i * .618034) < keep ? m : zero));
-  MEADOW.mesh.instanceMatrix.needsUpdate = true;
-}
+// grass: look.js builds the clumped grass and replaces this with its own density control
+function setMeadowDensity() {}
 // dry leaf litter, curled
 {
   const g = new THREE.PlaneGeometry(1, 2, 6, 10); g.rotateX(-Math.PI / 2);
@@ -859,7 +836,7 @@ function setMeadowDensity(keep) {
 
 /* ---------- cork background, glass, frame, fixtures, room ---------- */
 {
-  const g = new THREE.PlaneGeometry(TW - .6, TH + 2, 150, 90), p = g.attributes.position;
+  const g = new THREE.PlaneGeometry(TW - .6, TH + 2, 240, 120), p = g.attributes.position;
   for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); p.setZ(i, (fbm(x * .09, y * .09, 2, 4) + .6) * 2.2 + Math.abs(PERLIN.noise(x * .3, y * .5, 5)) * .6); }
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, track(new THREE.MeshStandardMaterial({ map: CORK.map, normalMap: CORK.normalMap, normalScale: new V2(1.5, 1.5), roughness: 1 }), .25));
@@ -899,13 +876,14 @@ const ledBar = new THREE.Group();
   const body = new THREE.Mesh(new THREE.BoxGeometry(TW * .82, .9, 3.2), track(new THREE.MeshStandardMaterial({ color: 0x1b1b1d, metalness: .8, roughness: .3 }), 1));
   const strip = new THREE.Mesh(new THREE.PlaneGeometry(TW * .78, 1.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xf3f6ff).multiplyScalar(3) }));
   strip.rotation.x = Math.PI / 2; strip.position.y = -.46; ledBar.add(body, strip); ledBar.userData.strip = strip;
-  ledBar.position.set(0, TH + .9, -5); scene.add(ledBar);
+  ledBar.position.set(0, TH + .9, -TD / 8); scene.add(ledBar);
 }
+const LAMP_P = natV(-14, 2);                                  // heat lamp hangs over the log's front, as in the old layout
 const bulb = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8c3a).multiplyScalar(4) }));
 {
   const hood = new THREE.Mesh(new THREE.LatheGeometry([[0, 4.5], [1.2, 4.4], [2.4, 3.6], [3.8, 1.8], [4.6, 0], [4.5, -.1]].map(([r, y]) => new V2(r, y)), 48),
     track(new THREE.MeshStandardMaterial({ color: 0x2a2521, metalness: .9, roughness: .3, side: THREE.DoubleSide }), 1));
-  hood.position.set(-14, TH + 1.2, 2); bulb.position.set(-14, TH + 2, 2); scene.add(hood, bulb);
+  hood.position.set(LAMP_P.x, TH + 1.2, LAMP_P.z); bulb.position.set(LAMP_P.x, TH + 2, LAMP_P.z); scene.add(hood, bulb);
 }
 
 /* ---------- lights ---------- */
@@ -914,23 +892,23 @@ const LIGHT_BASE = { led: 2.3, lamp: 3.4, hemi: .45, moon: .34, rim: .4 };
 const hemi = new THREE.HemisphereLight(0xd6e0ff, 0x3a2414, LIGHT_BASE.hemi); scene.add(hemi);
 // full-spectrum LED bar in the lid: cool key light from above with soft-edged shadows
 const led = new THREE.DirectionalLight(0xf3f6ff, LIGHT_BASE.led);
-led.position.set(4, 70, 12); led.target.position.set(0, 0, -2);
+led.position.set(8, 130, 24); led.target.position.set(0, 0, -4);
 led.castShadow = true; led.shadow.mapSize.set(2048, 2048); led.shadow.bias = -.0003; led.shadow.normalBias = .04;
-Object.assign(led.shadow.camera, { left: -34, right: 34, top: 26, bottom: -26, near: 30, far: 100 });
+Object.assign(led.shadow.camera, { left: -TW / 2 - 4, right: TW / 2 + 4, top: TD / 2 + 6, bottom: -TD / 2 - 6, near: 60, far: 210 });
 scene.add(led, led.target);
 // sunlight through a window: game.js moves it along the sun's arc by the real clock
 const sun = new THREE.DirectionalLight(0xfff1dc, 0); sun.target.position.set(0, 4, 0);
 sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -.0004; sun.shadow.normalBias = .05;
-Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 10, far: 180 });
+Object.assign(sun.shadow.camera, { left: -85, right: 85, top: 85, bottom: -85, near: 20, far: 340 });
 scene.add(sun, sun.target);
 // ceramic heat lamp: warm pool of light over the log, falls off softly
-const lamp = new THREE.SpotLight(0xff8a40, LIGHT_BASE.lamp, 80, Math.PI / 5, 1, 1.5);
-lamp.position.set(-14, TH + 1.4, 2); lamp.target.position.set(-14, 0, -2); lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = -.0004; lamp.shadow.normalBias = .03;
-lamp.shadow.camera.near = 8; lamp.shadow.camera.far = 60;
+const lamp = new THREE.SpotLight(0xff8a40, LIGHT_BASE.lamp, TH * 2.4, Math.PI / 5, 1, 1.5);
+lamp.position.set(LAMP_P.x, TH + 1.4, LAMP_P.z); lamp.target.position.set(LAMP_P.x, 0, LAMP_P.z - 4); lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = -.0004; lamp.shadow.normalBias = .03;
+lamp.shadow.camera.near = 8; lamp.shadow.camera.far = TH * 2;
 scene.add(lamp, lamp.target);
-const lampGlow = new THREE.PointLight(0xff7a30, 0, 14, 2); lampGlow.position.set(-14, TH + 1, 2); scene.add(lampGlow);   // lights the hood and the glass top
-const moon = new THREE.DirectionalLight(0x7d98d8, 0); moon.position.set(-40, 50, 30); scene.add(moon);
-const rim = new THREE.DirectionalLight(0xffdcb4, LIGHT_BASE.rim); rim.position.set(10, 22, -70); scene.add(rim);
+const lampGlow = new THREE.PointLight(0xff7a30, 0, 14, 2); lampGlow.position.set(LAMP_P.x, TH + 1, LAMP_P.z); scene.add(lampGlow);   // lights the hood and the glass top
+const moon = new THREE.DirectionalLight(0x7d98d8, 0); moon.position.set(-72, 90, 54); scene.add(moon);
+const rim = new THREE.DirectionalLight(0xffdcb4, LIGHT_BASE.rim); rim.position.set(18, 40, -126); scene.add(rim);
 
 /* god rays: thin additive sheets under the LED bar + a soft cone under the heat lamp.
    Fade toward the floor, soft edges, slow drifting streaks; sheets seen edge-on vanish (facing term). game.js sets uI. */
@@ -952,19 +930,19 @@ const beams = new THREE.Group(), ledBeamMat = beamMat(0xe8efff), lampBeamMat = b
 {
   const g = new THREE.PlaneGeometry(TW * .78 / 3, TH); g.translate(0, TH / 2, 0);
   for (let i = 0; i < 5; i++) { const m = new THREE.Mesh(g, ledBeamMat);
-    m.position.set(lerp(-TW * .3, TW * .3, i / 4), 0, -5 + rand(-1.4, 1.4)); m.rotation.set(rand(-.06, .06), rand(-.35, .35), 0); beams.add(m); }
-  const c = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 11, TH, 32, 1, true), lampBeamMat);
-  c.geometry.translate(0, -TH / 2, 0); c.position.set(-14, TH + .4, 2); c.rotation.x = -.08; beams.add(c);
+    m.position.set(lerp(-TW * .3, TW * .3, i / 4), 0, -TD / 8 + rand(-2.8, 2.8)); m.rotation.set(rand(-.06, .06), rand(-.35, .35), 0); beams.add(m); }
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(2.4, TH / 3, TH, 32, 1, true), lampBeamMat);
+  c.geometry.translate(0, -TH / 2, 0); c.position.set(LAMP_P.x, TH + .4, LAMP_P.z); c.rotation.x = -.08; beams.add(c);
   beams.renderOrder = 2; scene.add(beams);
 }
 
 /* dust motes in the beam: soft round specks */
-const dustN = 600, dust = (() => { const g = new THREE.BufferGeometry(), a = new Float32Array(dustN * 3);
+const dustN = 1500, dust = (() => { const g = new THREE.BufferGeometry(), a = new Float32Array(dustN * 3);
   for (let i = 0; i < dustN; i++) { a[i * 3] = rand(-TW / 2, TW / 2); a[i * 3 + 1] = rand(2, TH); a[i * 3 + 2] = rand(-TD / 2, TD / 2); }
   g.setAttribute('position', new THREE.BufferAttribute(a, 3));
   const cv = document.createElement('canvas'); cv.width = cv.height = 64; const cx = cv.getContext('2d'), gr = cx.createRadialGradient(32, 32, 0, 32, 32, 32);
   gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(.35, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); cx.fillStyle = gr; cx.fillRect(0, 0, 64, 64);
-  return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff1d6, size: .25, map: new THREE.CanvasTexture(cv), transparent: true, opacity: .4, depthWrite: false, blending: THREE.AdditiveBlending })); })();
+  return new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff1d6, size: .35, map: new THREE.CanvasTexture(cv), transparent: true, opacity: .4, depthWrite: false, blending: THREE.AdditiveBlending })); })();
 scene.add(dust);
 
 function applyEnv(level) { envMats.forEach(m => { m.envMapIntensity = m.userData.env * level; }); }
