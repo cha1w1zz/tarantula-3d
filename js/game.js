@@ -9,53 +9,81 @@ const exuviae = [];
 function newState(name, sp) { return { name, sp, span: 9, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true, led: true, phase: 'normal', phaseT: 0 }; }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
-function log(msg, sci) {
-  const p = document.createElement('p'); if (sci) p.className = 'sci';
-  const h = Math.floor(S ? S.hour % 24 : 0);
-  p.innerHTML = `<b class="num">${String(h).padStart(2, '0')}:00</b> ${msg}`;
+function log(msg, cls) { // stamped with the real clock of the keeper's device
+  const p = document.createElement('p'); if (cls) p.className = cls === true ? 'sci' : cls;
+  const d = new Date(), t = [d.getHours(), d.getMinutes(), d.getSeconds()].map(v => String(v).padStart(2, '0')).join(':');
+  p.innerHTML = `<b class="num">${t}</b> ${msg}`;
   const L = $('log'); L.insertBefore(p, L.children[1] || null);
   while (L.children.length > 30) L.removeChild(L.lastChild);
+}
+/* the spider "talks": a speech bubble over it plus a line in the log. Events (pri) may interrupt after 3 s; mood talk waits its turn */
+let sayCD = 6, sayGap = 0, sayBubbleT = 0, chatT = 12; const sayLast = {};
+function say(cat, pri) {
+  const L = VOICE[cat]; if (!L || previewing || sayGap > 0 || (!pri && sayCD > 0)) return false;
+  let i = Math.floor(Math.random() * L.length); if (L.length > 1 && i === sayLast[cat]) i = (i + 1) % L.length; sayLast[cat] = i;
+  $('say').textContent = L[i]; sayBubbleT = 4.5; sayCD = rand(10, 16); sayGap = 3;
+  log(`<i>${S.name}:</i> “${L[i]}”`, 'say');
+  return true;
+}
+function moodTalk() { // what's on its mind right now, most pressing first
+  const night = isNight();
+  if (S.phase === 'molting') return say('molt');
+  if (S.phase === 'premolt') return say('premolt');
+  if (S.phase === 'soft') return say('soft');
+  if (Math.random() < .3) return say('chatter');
+  if (S.hunger > 70) return say('hungry');
+  if (S.hum < 58) return say('dry');
+  if (S.temp < 21) return say('cold');
+  if (S.led && !night && Math.random() < .5) return say('bright');
+  if (S.hunger < 25 && Math.random() < .5) return say('full');
+  return say('chatter');
 }
 
 /* ---------- prey ---------- */
 const prey = [];
-function limb(parent, from, dirs, r, mat) { // chain of thin cylinders
-  let p = from.clone(); const segs = [];
+function limb(parent, from, dirs, r, mat) { // jointed chain: each segment hangs from the previous joint, so turning a joint carries the rest of the leg
+  let par = parent, p = from.clone(); const joints = [];
   dirs.forEach(([dx, dy, dz, len]) => { const d = new V3(dx, dy, dz).normalize(), g = new THREE.CylinderGeometry(r * .7, r, len, 6); g.translate(0, len / 2, 0);
-    const m = new THREE.Mesh(g, mat); m.position.copy(p); m.quaternion.setFromUnitVectors(UP, d); m.castShadow = true; parent.add(m); segs.push(m); p = p.clone().addScaledVector(d, len); });
-  return segs;
+    const j = new THREE.Group(); j.position.copy(p); par.add(j);
+    const m = new THREE.Mesh(g, mat); m.quaternion.setFromUnitVectors(UP, d); m.castShadow = true; j.add(m);
+    joints.push(j); par = j; p = d.multiplyScalar(len); });
+  return joints;
 }
-function antenna(parent, from, dir, len, mat) {
-  const pts = []; for (let k = 0; k <= 8; k++) { const t = k / 8; pts.push(from.clone().addScaledVector(dir, len * t).add(new V3(0, Math.sin(t * 2) * len * .15, 0))); }
-  parent.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, .012, 4), mat));
+function antenna(parent, from, dir, len, mat) { // pivots in its socket so it can sweep
+  const pv = new THREE.Group(); pv.position.copy(from); parent.add(pv);
+  const pts = []; for (let k = 0; k <= 8; k++) { const t = k / 8; pts.push(dir.clone().multiplyScalar(len * t).add(new V3(0, Math.sin(t * 2) * len * .15, 0))); }
+  pv.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, .012, 4), mat));
+  return pv;
 }
 class Prey {
   constructor(kind) {
-    this.kind = kind; this.burrowed = 0; this.vibT = 0; this.eaten = false; this.held = false; this.walk = 0;
+    this.kind = kind; this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
     let x, z, k = 0; do { x = rand(-12, 22); z = rand(-6, 14); } while ((!clearSpot(x, z) || (spider && Math.hypot(x - spider.pos.x, z - spider.pos.z) < spider.span * 1.6)) && k++ < 60);
-    this.pos = new V3(x, 0, z); this.yaw = rand(0, 6.3); this.v = 0; this.t = rand(0, 2); this.hop = 0; this.vy = 0; this.y = 0;
-    const g = this.mesh = new THREE.Group(); this.legs = [];
+    this.pos = new V3(x, 0, z); this.yaw = rand(0, 6.3); this.face = this.yaw; this.v = 0; this.t = rand(0, 2); this.hop = 0; this.vy = 0; this.y = 0;
+    this.crouch = 0; this.kick = 0; this.chirp = 0; this.pitch = 0; this.hindA = .1; this.tibA = 0; this.ph = rand(0, 6.3);
+    const g = this.mesh = new THREE.Group(); g.rotation.order = 'YXZ'; this.legs = []; this.ant = []; this.hind = [];
     if (kind === 'cricket') {
       const body = track(new THREE.MeshPhysicalMaterial({ color: lin(0x5e401f), roughness: .38, clearcoat: .7 }), .7), dark = track(new THREE.MeshPhysicalMaterial({ color: lin(0x22160b), roughness: .3, clearcoat: .8 }), .7);
       const e = (sx, sy, sz, x, y, z, m) => { const q = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), m); q.scale.set(sx, sy, sz); q.position.set(x, y, z); q.castShadow = true; g.add(q); return q; };
       e(.27, .26, .27, 0, .34, .95, body); e(.07, .07, .07, .18, .42, 1.04, dark); e(.07, .07, .07, -.18, .42, 1.04, dark);
-      e(.32, .25, .3, 0, .36, .62, dark); e(.34, .28, .78, 0, .3, -.1, body); e(.37, .07, .64, 0, .52, -.05, dark);
-      [-1, 1].forEach(s => { antenna(g, new V3(s * .1, .45, 1.15), new V3(s * .35, .25, 1).normalize(), 2.6, dark);
+      e(.32, .25, .3, 0, .36, .62, dark); e(.34, .28, .78, 0, .3, -.1, body); this.wing = e(.37, .07, .64, 0, .52, -.05, dark);
+      [-1, 1].forEach(s => { this.ant.push({ pv: antenna(g, new V3(s * .1, .45, 1.15), new V3(s * .35, .25, 1).normalize(), 2.6, dark), s });
         limb(g, new V3(s * .08, .3, -.85), [[s * .2, .2, -1, .6]], .025, dark);
-        this.legs.push(limb(g, new V3(s * .22, .3, .7), [[s, -.3, .5, .35], [s * .3, -1, .3, .4]], .035, body));
-        this.legs.push(limb(g, new V3(s * .25, .28, .35), [[s, -.2, -.1, .38], [s * .3, -1, -.3, .45]], .035, body));
+        this.legs.push({ j: limb(g, new V3(s * .22, .3, .7), [[s, -.3, .5, .35], [s * .3, -1, .3, .4]], .035, body), s, i: 0 });
+        this.legs.push({ j: limb(g, new V3(s * .25, .28, .35), [[s, -.2, -.1, .38], [s * .3, -1, -.3, .45]], .035, body), s, i: 1 });
         const hind = new THREE.Group(); hind.position.set(s * .27, .32, 0); g.add(hind);
         const fem = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), body); fem.scale.set(.1, .12, .48); fem.position.set(s * .1, .12, -.35); fem.rotation.x = -.35; hind.add(fem); fem.castShadow = true;
-        limb(hind, new V3(s * .12, .28, -.78), [[s * .15, -1, .35, .85]], .03, dark); this.hind = (this.hind || []).concat(hind); });
+        this.hind.push({ g: hind, tib: limb(hind, new V3(s * .12, .28, -.78), [[s * .15, -1, .35, .85]], .03, dark)[0], s }); });
       this.value = 22; this.speed = 5; this.vib = 1.3;
     } else {
       const shell = track(new THREE.MeshPhysicalMaterial({ color: lin(0x3a2515), roughness: .3, clearcoat: 1, clearcoatRoughness: .2 }), .8), under = track(new THREE.MeshStandardMaterial({ color: lin(0x5a3a1f), roughness: .6 }), .5);
       for (let k = 0; k < 8; k++) { const t = k / 7, w = .85 * Math.sin(Math.PI * (t * .82 + .12)) + .12;
         const q = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), shell); q.scale.set(w, .24 - Math.abs(t - .45) * .1, .19);
-        q.position.set(0, .1, .95 - t * 1.9); q.material = k % 2 ? shell : shell; q.castShadow = true; g.add(q); }
+        q.position.set(0, .1, .95 - t * 1.9); q.castShadow = true; g.add(q); }
       const belly = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), under); belly.scale.set(.8, .08, 1.05); belly.position.y = .1; g.add(belly);
-      [-1, 1].forEach(s => { antenna(g, new V3(s * .1, .12, 1.05), new V3(s * .5, .1, 1).normalize(), 1, under);
-        [.5, 0, -.5].forEach(z => this.legs.push(limb(g, new V3(s * .5, .08, z), [[s, -.2, z * .5, .4], [s * .4, -1, z * .3, .3]], .03, under))); });
+      [-1, 1].forEach(s => { this.ant.push({ pv: antenna(g, new V3(s * .1, .12, 1.05), new V3(s * .5, .1, 1).normalize(), 1, under), s });
+        [.5, 0, -.5].forEach((z, i) => this.legs.push({ j: limb(g, new V3(s * .5, .08, z), [[s, -.2, z * .5, .4], [s * .4, -1, z * .3, .3]], .03, under), s, i })); });
+      g.scale.setScalar(1.3);                       // adult-sized roach (≈ 3 cm), a proper meal for a tarantula
       this.value = 35; this.speed = 3.2; this.vib = .9;
     }
     this.mats = [];
@@ -64,15 +92,31 @@ class Prey {
     this.opacity = 1;
     scene.add(g);
   }
+  // crickets squat on their hind legs for a moment, then kick off
+  jump(v, vy) { if (this.crouch > 0 || this.y > .05) return; this.crouch = .14; this.jv = v; this.jvy = vy; this.chirp = 0; }
+  // alternating tripods (front + hind of one side with the middle leg of the other) swing forward while the other tripod pushes
+  poseLegs(amp, lift, air) {
+    for (const L of this.legs) {
+      const ph = this.walk + ((L.i + (L.s > 0 ? 1 : 0)) % 2) * Math.PI, sw = -Math.cos(ph) * .38 * amp, up = Math.max(0, Math.sin(ph)) * .45 * lift;
+      L.j[0].rotation.set(0, -L.s * (sw + (air ? .3 : 0)), L.s * (up + (air ? .3 : 0)));
+      L.j[1].rotation.z = L.s * (up * .5 + (air ? .25 : 0));
+    }
+  }
+  poseAntennae(now, speed, droop) { this.ant.forEach(({ pv, s }) => pv.rotation.set(Math.sin(now * speed * .7 + this.ph + s) * .15 + droop,
+    s * (.1 + Math.sin(now * speed + this.ph * 1.7 + s * 1.3) * .28), 0)); }
   update(dt, sp) {
-    if (this.eaten || this.held) return;             // held prey is posed by the spider's 'eat' state
+    if (this.eaten) return;
+    const now = performance.now() / 1000;
+    if (this.held) { // bitten: legs kick and antennae flick, fading as the venom works (the spider's 'eat' state poses the body)
+      this.heldT += dt; const k = Math.exp(-this.heldT * .7); this.walk += dt * 24 * k;
+      this.poseLegs(k, k * .8, false); this.poseAntennae(now, 1 + 5 * k, .4 * (1 - k)); return; }
     const tm = TM; this.t -= dt;
     const d = Math.hypot(sp.pos.x - this.pos.x, sp.pos.z - this.pos.z);
     const threatNear = d < sp.span * 1.1 && sp.flip < .5 && sp.hidden < .5;
     if (this.kind === 'dubia') {
-      if (this.burrowed > 0) { // dubia roaches dig into the substrate to escape predators
-        this.burrowed = Math.min(1, this.burrowed + dt * .8);
-        if (this.t < 0 && !threatNear) { this.burrowed = 0; this.t = rand(1, 3); log('แมลงสาบดูเบียโผล่ขึ้นจากดิน'); }
+      if (this.burrowed > 0) { // dubia roaches dig into the substrate to escape predators, and dig back out later
+        if (this.rising) { this.burrowed -= dt * .7; if (this.burrowed <= 0) { this.burrowed = 0; this.rising = false; } }
+        else { this.burrowed = Math.min(1, this.burrowed + dt * .8); if (this.t < 0 && !threatNear) { this.rising = true; this.t = rand(1, 3); log('แมลงสาบดูเบียโผล่ขึ้นจากดิน'); } }
         this.v = 0;
       } else if (threatNear && sp.mode === 'hunt') {
         this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z) + rand(-.4, .4); this.v = this.speed * 1.6;
@@ -80,22 +124,48 @@ class Prey {
       } else if (this.t < 0) { this.t = rand(1, 4); this.v = Math.random() < .55 ? this.speed * rand(.4, 1) : 0; this.yaw += rand(-1.5, 1.5); }
     } else {
       if (this.hop > 0) this.hop -= dt;
-      if (this.t < 0) { this.t = rand(.6, 2.5); if (Math.random() < .5) { this.v = this.speed * rand(1.2, 2); this.vy = rand(5, 9); this.hop = .5; this.yaw += rand(-1.5, 1.5); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; this.yaw += rand(-1, 1); } }
-      if (threatNear && sp.mode === 'hunt' && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.v = this.speed * 2.2; this.vy = 8; this.hop = .5; }
+      if (this.crouch > 0) { this.crouch -= dt * tm; if (this.crouch <= 0) { this.crouch = 0; this.v = this.jv; this.vy = this.jvy; this.hop = .5; this.kick = .14; } }
+      else if (this.t < 0) { this.t = rand(.6, 2.5); if (Math.random() < .5) { this.yaw += rand(-1.5, 1.5); this.jump(this.speed * rand(1.2, 2), rand(5, 9)); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; this.yaw += rand(-1, 1); } }
+      if (threatNear && sp.mode === 'hunt' && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
+      // males chirp at night: forewings raised and rubbed together
+      if (this.chirp > 0) this.chirp -= dt; else if (isNight() && this.v < .3 && this.y <= 0 && !threatNear && Math.random() < dt * .06) this.chirp = rand(1.2, 3);
     }
-    this.pos.x += Math.sin(this.yaw) * this.v * dt * tm; this.pos.z += Math.cos(this.yaw) * this.v * dt * tm;
+    // the body turns toward where it wants to go (fast while squatting to jump) instead of snapping round
+    const air = this.y > .05, wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+    if (!air) { const tr = (this.crouch > 0 ? 14 : this.kind === 'cricket' ? 5 : 4) * dt * tm; this.face += clamp(wrap(this.yaw - this.face), -tr, tr); }
+    const v = air ? this.v : this.crouch > 0 ? 0 : this.v * clamp(Math.cos(wrap(this.yaw - this.face)) * .85 + .15, .1, 1);
+    this.pos.x += Math.sin(this.face) * v * dt * tm; this.pos.z += Math.cos(this.face) * v * dt * tm;
     if (!inTank(this.pos.x, this.pos.z, 2)) { this.yaw += Math.PI; this.pos.x = clamp(this.pos.x, -TW / 2 + 2, TW / 2 - 2); this.pos.z = clamp(this.pos.z, -TD / 2 + 2, TD / 2 - 2); }
     for (const o of preyObs) { const dx = this.pos.x - o.x, dz = this.pos.z - o.z, dd = Math.hypot(dx, dz) || 1, rr = o.r * 1.1 + .4;
       if (dd < rr && this.y < o.h) { this.pos.x = o.x + dx / dd * rr; this.pos.z = o.z + dz / dd * rr; this.yaw = Math.atan2(dx, dz) + rand(-1, 1); } }
     if (pushOutOfLog(this.pos, .6)) this.yaw += Math.PI * rand(.6, 1.4);
+    const vy0 = this.vy;
     this.y += this.vy * dt; this.vy -= 30 * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; if (this.kind === 'cricket' && this.v > this.speed) this.v *= .5; }
-    const gy = groundY(this.pos.x, this.pos.z);
-    this.mesh.position.set(this.pos.x, gy + this.y - this.burrowed * 1.2, this.pos.z); this.mesh.rotation.y = this.yaw;
-    this.walk += dt * this.v * 6;
-    this.legs.forEach((segs, i) => { segs[0].rotation.z = Math.sin(this.walk + i * 2.1) * .25 * (this.v > .1 ? 1 : 0); });
-    if (this.hind) this.hind.forEach(h => h.rotation.x = this.y > .05 ? .9 : 0);
+    // body follows the slope, noses up on take-off / down on the fall, squats before a jump, tips in or out while digging
+    const gy = groundY(this.pos.x, this.pos.z), fx = Math.sin(this.face), fz = Math.cos(this.face);
+    let pitch = -Math.atan((groundY(this.pos.x + fx * .9, this.pos.z + fz * .9) - groundY(this.pos.x - fx * .9, this.pos.z - fz * .9)) / 1.8);
+    if (air) pitch += clamp(-vy0 * .045, -.45, .45);
+    if (this.crouch > 0) pitch -= .2;
+    const digging = this.burrowed > 0 && (this.rising || this.burrowed < 1);
+    if (this.burrowed > 0) pitch += this.rising ? -.3 : .35;
+    this.pitch = lerp(this.pitch, pitch, clamp(dt * 10, 0, 1));
+    const gait = v > .1 && !air;
+    this.gaitK = lerp(this.gaitK, gait || digging ? 1 : 0, clamp(dt * 8, 0, 1));
+    if (gait || digging) this.walk += dt * tm * (digging ? 26 : 3 + v * 4.5);
+    const bob = Math.abs(Math.sin(this.walk)) * .03 * this.gaitK, roll = Math.sin(this.walk) * .05 * this.gaitK;
+    this.mesh.position.set(this.pos.x, gy + this.y - this.burrowed * 1.2 + bob - (this.crouch > 0 ? .08 : 0), this.pos.z);
+    this.mesh.rotation.set(this.pitch, this.face, roll);
+    this.poseLegs(this.gaitK, this.gaitK, air);
+    this.poseAntennae(now, threatNear || digging ? 5 : this.v > .1 ? 2.4 : 1.3, air ? -.15 : 0);
+    if (this.hind.length) { // big jumping legs: fold for the squat, kick straight at take-off, trail in the air
+      this.kick -= dt;
+      const [ha, ta] = this.crouch > 0 ? [.45, -.45] : this.kick > 0 ? [-.5, 1] : air ? [-.3, .6] : [.1, 0];
+      const k = clamp(dt * (this.kick > 0 ? 40 : 12), 0, 1); this.hindA = lerp(this.hindA, ha, k); this.tibA = lerp(this.tibA, ta, k);
+      this.hind.forEach(h => { h.g.rotation.x = this.hindA + Math.sin(this.walk + (h.s > 0 ? 0 : Math.PI)) * .12 * this.gaitK; h.tib.rotation.x = this.tibA; });
+    }
+    if (this.wing) { const c = this.chirp > 0 ? 1 : 0; this.wing.rotation.x = c * (-.2 + Math.sin(now * 75) * .05); this.wing.position.y = .52 + c * .05; }
     this.setOpacity(1 - this.burrowed * .95);
-    this.moving = this.burrowed <= 0 && (this.v > .3 || this.y > .05);
+    this.moving = this.burrowed <= 0 && (v > .3 || this.y > .05);
     this.vibT -= dt;
     if (this.moving && this.vibT <= 0 && vibOn) { spawnRipple(this.pos, this.vib); this.vibT = .45; }
   }
@@ -173,7 +243,7 @@ function setMode(m) {
   spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.best = Infinity;
   if (m === 'idle') nav.idleFor = rand(2.5, 6);
 }
-const nav = { stuckT: 0, best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
+const nav = { pauseT: 0, burstT: 2, stuckT: 0, best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
 function accelerate(dt, des, acc) { const dv = des.clone().sub(spider.vel), m = acc * dt; if (dv.length() > m) dv.setLength(m); spider.vel.add(dv); }
 function brake(dt) { accelerate(dt, new V3(), spider.span * 6 * TM); spider.yawRate = lerp(spider.yawRate, 0, clamp(dt * 5, 0, 1)); spider.yaw += spider.yawRate * dt; }
 function faceTo(dt, x, z) { let dy = Math.atan2(x - spider.pos.x, z - spider.pos.z) - spider.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -232,14 +302,23 @@ function tick(dt) {
   const hrs = dt * .5 * TM; S.hour += hrs;
   factT -= hrs; if (factT <= 0) { factT = rand(5, 9); log('รู้ไหม: ' + FACTS[factI++ % FACTS.length], true); }
   const night = isNight();
+  if (night && S.wasNight === false) say('night', true);
+  S.wasNight = night;
+  sayCD -= dt; sayGap -= dt; if ((chatT -= dt) <= 0) { chatT = rand(20, 32); moodTalk(); }
+  // care on autopilot, once per crisis: very hungry → drop in one prey; very dry → one misting (re-arms after it recovers)
+  if (!previewing && S.phase === 'normal' && S.hunger >= 85 && !S.autoFed && !prey.some(p => !p.eaten)) {
+    S.autoFed = true; say('starving', true); feed(Math.random() < .5 ? 'cricket' : 'dubia', true); }
+  if (S.hunger < 60) S.autoFed = false;
+  if (!previewing && S.hum < 55 && !S.autoMist) { S.autoMist = true; say('autoMist', true); mist(true); }
+  if (S.hum > 65) S.autoMist = false;
   const tTarget = (S.lamp ? 28.5 : 24) - (night ? 1.5 : 0) + (S.led ? .5 : 0);
   S.temp = lerp(S.temp, tTarget, clamp(hrs * .15, 0, 1));
   S.hum = clamp(lerp(S.hum, 62, clamp(hrs * .03, 0, 1)) - (S.lamp ? hrs * .25 : 0), 30, 98);
   const M = metab();
   if (S.phase !== 'molting') S.hunger = clamp(S.hunger + hrs * 1.3 * M, 0, 100);
   S.phaseT += hrs;
-  if (S.phase === 'normal' && S.growth >= 100) { S.phase = 'premolt'; S.phaseT = 0; log(`${S.name} หยุดกินอาหาร ท้องเริ่มคล้ำ เป็นสัญญาณว่าใกล้ลอกคราบ`, true); }
-  if (S.phase === 'premolt' && S.phaseT > 30) { S.phase = 'molting'; S.phaseT = 0; setMode('molt'); log(`${S.name} นอนหงายเพื่อลอกคราบ อย่ารบกวน`, true);
+  if (S.phase === 'normal' && S.growth >= 100) { S.phase = 'premolt'; S.phaseT = 0; log(`${S.name} หยุดกินอาหาร ท้องเริ่มคล้ำ เป็นสัญญาณว่าใกล้ลอกคราบ`, true); say('premolt', true); }
+  if (S.phase === 'premolt' && S.phaseT > 30) { S.phase = 'molting'; S.phaseT = 0; setMode('molt'); log(`${S.name} นอนหงายเพื่อลอกคราบ อย่ารบกวน`, true); say('molt', true);
     if (S.hum < 60) log('ความชื้นต่ำไป คราบอาจลอกยาก ลองพ่นน้ำ', true);
     if (prey.some(p => !p.eaten)) log('ระวัง เหยื่อที่ยังมีชีวิตอาจกัดแมงมุมที่กำลังลอกคราบได้', true); }
   if (S.phase === 'molting' && S.phaseT > 6) finishMolt();
@@ -254,11 +333,14 @@ function tick(dt) {
   if (hungry && ['wander', 'idle', 'toBurrow', 'hide'].includes(sp.mode)) {
     const p = prey.find(p => sensePrey(p, senseR));
     if (p) { sp.prey = p; nav.mem.copy(p.pos); nav.lost = 0; nav.replanT = 0; sp.route = []; setMode('hunt');
-      log(`${S.name} รู้สึกถึงแรงสั่นของ${p.kind === 'cricket' ? 'จิ้งหรีด' : 'ดูเบีย'} จึงย่องเข้าหา`, true); }
+      log(`${S.name} รู้สึกถึงแรงสั่นของ${p.kind === 'cricket' ? 'จิ้งหรีด' : 'ดูเบีย'} จึงย่องเข้าหา`, true); say('hunt', true); }
   }
   switch (sp.mode) {
     case 'idle': brake(dt); if (sp.modeT > nav.idleFor / M) pickWander(); break;
-    case 'wander': if (follow_route(dt, speed * .45) || sp.modeT > 18) setMode('idle'); break;
+    case 'wander': // tarantulas walk in short bursts, freezing to feel the ground in between
+      if (nav.pauseT > 0) { nav.pauseT -= dt * TM; brake(dt); if (sp.modeT > 18) setMode('idle'); break; }
+      if ((nav.burstT -= dt * TM) <= 0) { nav.burstT = rand(1.5, 4); if (Math.random() < .55) nav.pauseT = rand(.5, 1.8) / M; }
+      if (follow_route(dt, speed * .45) || sp.modeT > 18) setMode('idle'); break;
     case 'toBurrow': if (follow_route(dt, speed * .55)) setMode('hide'); if (sp.modeT > 40) setMode('idle'); break;
     case 'hide': brake(dt); w.hidden = 1; if ((night && sp.modeT > 3 && S.phase !== 'premolt') || sp.modeT > 25 / M) pickWander(); break;
     case 'hunt': {
@@ -283,8 +365,8 @@ function tick(dt) {
       const dm = Math.hypot(p.pos.x - mouth.x, p.pos.z - mouth.z);
       if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
       else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
-      if (sp.modeT > .2 && dm < L * .3) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); }
-      else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); }
+      if (sp.modeT > .2 && dm < L * .3) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true); }
+      else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); say('miss', true); }
       break;
     }
     case 'eat': {
@@ -296,7 +378,7 @@ function tick(dt) {
       if (sp.modeT > 9 / TM) {
         leaveBolus(mouth, p.kind);
         p.remove(); S.hunger = clamp(S.hunger - p.value * 1.4, 0, 100); S.growth = clamp(S.growth + p.value * (12 / L), 0, 100);
-        log('ย่อยนอกร่างกายเสร็จ เหลือแต่ซาก (น้ำย่อยละลายเนื้อเหยื่อก่อนดูดกิน)', true); setMode('idle'); save();
+        log('ย่อยนอกร่างกายเสร็จ เหลือแต่ซาก (น้ำย่อยละลายเนื้อเหยื่อก่อนดูดกิน)', true); say('eat', true); setMode('idle'); save();
       }
       break;
     }
@@ -338,6 +420,7 @@ function finishMolt() {
   const pos = spider.pos.clone(), yaw = spider.yaw; spider.dispose();
   spider = new Spider(S.sp, S.span); spider.yaw = yaw; spider.pos.copy(pos).add(new V3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(old * .6)); spider.placeFeet();
   S.phase = 'soft'; S.phaseT = 0; S.growth = 0; spider.soft = 1; setMode('idle');
+  sayGap = 0; say('soft', true);
   log(`ลอกคราบครั้งที่ ${S.molts} สำเร็จ ขนาดขา ${old} → ${S.span} ซม. เปลือกใหม่ยังนิ่ม ห้ามให้อาหารราว 1–2 สัปดาห์`, true);
   save();
 }
@@ -399,21 +482,24 @@ canvas.addEventListener('pointerup', e => {
   ray.setFromCamera(mouse, camera);
   if (!ray.intersectObjects(spider.picks || (spider.picks = spider.pickables())).length) return;
   if (S.phase === 'molting') { log('อย่าจิ้มระหว่างลอกคราบ อาจทำให้ขาหลุดหรือคราบติด', true); return; }
-  if (Math.random() < spider.sp.aggro) { setMode('threat'); log(`${S.name} ยกขาหน้าและกางเขี้ยวขู่ บึ้งไทยไม่มีขนพิษ จึงป้องกันตัวด้วยการขู่และกัด`, true); }
-  else { goBurrow('flee'); log(`${S.name} ตกใจ วิ่งกลับเข้าโพรงใต้ขอนไม้`); }
+  if (Math.random() < spider.sp.aggro) { setMode('threat'); say('poke', true); log(`${S.name} ยกขาหน้าและกางเขี้ยวขู่ บึ้งไทยไม่มีขนพิษ จึงป้องกันตัวด้วยการขู่และกัด`, true); }
+  else { goBurrow('flee'); log(`${S.name} ตกใจ วิ่งกลับเข้าโพรงใต้ขอนไม้`); say('flee', true); }
 });
-function feed(kind) {
+function feed(kind, auto) {
   if (prey.filter(p => !p.eaten).length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
   prey.push(new Prey(kind));
-  if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
+  if (auto) log(`🤖 ให้อาหารอัตโนมัติ: ${S.name} หิวจัด จึงปล่อย${kind === 'cricket' ? 'จิ้งหรีด' : 'แมลงสาบดูเบีย'} 1 ตัว`);
+  else if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
   else if (S.phase === 'soft') log('เขี้ยวยังนิ่มหลังลอกคราบ ยังไม่ควรให้อาหาร', true);
   else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
 }
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
-$('tMist').onclick = () => { S.hum = clamp(S.hum + 14, 0, 98); log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); mistFx(); };
+function mist(auto) { S.hum = clamp(S.hum + 14, 0, 98); mistFx();
+  if (auto) log(`🤖 พ่นน้ำอัตโนมัติ: ความชื้นต่ำมาก จึงพ่นละอองน้ำให้ 1 ครั้ง`); else { log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); say('misted', true); } }
+$('tMist').onclick = () => mist(false);
 $('tLed').onclick = e => { S.led = !S.led; e.currentTarget.classList.toggle('on', S.led); log(S.led ? 'เปิดไฟตู้' : 'ปิดไฟตู้');
-  if (S.led) { log('ทารันทูลาไม่ชอบแสงจ้า ถ้าเปิดไฟตู้นานๆ มันจะหลบในโพรงบ่อยขึ้น', true); if (spider.mode === 'wander' && Math.random() < .5) goBurrow('toBurrow'); } };
+  if (S.led) { say('bright', true); log('ทารันทูลาไม่ชอบแสงจ้า ถ้าเปิดไฟตู้นานๆ มันจะหลบในโพรงบ่อยขึ้น', true); if (spider.mode === 'wander' && Math.random() < .5) goBurrow('toBurrow'); } };
 $('tLamp').onclick = e => { S.lamp = !S.lamp; e.currentTarget.classList.toggle('on', S.lamp); log(S.lamp ? 'เปิดไฟอุ่น' : 'ปิดไฟอุ่น'); };
 $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); };
 $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); };
@@ -508,6 +594,12 @@ function loop() {
   bokeh.uniforms.focus.value = fd; bokeh.uniforms.aperture.value = clamp(.0065 / fd, .00005, .0006);
   renderer.shadowMap.needsUpdate = true;
   composer.render();
+  // speech bubble floats above the spider
+  const sb = $('say'); sayBubbleT -= dt;
+  if (sayBubbleT > 0 && spider && !previewing) { const q = spider.root.position.clone(); q.y += spider.span * .22; q.project(camera);
+    const on = q.z < 1 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1; sb.classList.toggle('on', on && sayBubbleT > .3);
+    if (on) { sb.style.left = clamp((q.x * .5 + .5) * innerWidth, 130, innerWidth - 130) + 'px'; sb.style.top = Math.max(60, (-q.y * .5 + .5) * innerHeight) + 'px'; } }
+  else sb.classList.remove('on');
   if (!previewing) { hudT -= dt; if (hudT < 0) { hud(); hudT = .2; } saveT -= dt; if (saveT < 0) { save(); saveT = 5; } }
   requestAnimationFrame(loop);
 }

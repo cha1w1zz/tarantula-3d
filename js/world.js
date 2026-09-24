@@ -620,17 +620,29 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
    (spider body and leg joints, prey) shove it aside, the tip stays on a sphere of the leaf's length around the base and
    above the ground. The vertex shader bends the blade by D along a cantilever profile (base stiff, tip free). */
 const foliage = [];
-function bendable(mat) {
+const TURF_U = { uTime: { value: 0 } };
+// gpuWind: gusts roll across the field as waves, computed per vertex in world space (cheap for tens of thousands of blades)
+function bendable(mat, gpuWind) {
   mat.onBeforeCompile = sh => {
     sh.vertexShader = 'attribute vec3 aBend;\n' + sh.vertexShader.replace('#include <begin_vertex>',
       '#include <begin_vertex>\nfloat fT = clamp(uv.y, 0.0, 1.0);\ntransformed += aBend * (fT * fT * (3.0 - fT) * .5);');
+    if (gpuWind) {
+      sh.uniforms.uTime = TURF_U.uTime;
+      sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = instanceMatrix * vec4( transformed, 1.0 );
+        vec2 ip = instanceMatrix[3].xz; float bh = length(instanceMatrix[1].xyz);
+        float gust = sin(dot(ip, vec2(.19, .13)) - uTime * 1.7) * .55 + sin(dot(ip, vec2(-.09, .27)) * 1.6 - uTime * 2.6) * .25 + sin(ip.x * 1.9 + ip.y * 2.3 - uTime * 4.1) * .08 + .45;
+        float wk = fT * fT * bh * .22 * gust;
+        mvPosition.xyz += vec3(.82, 0.0, .57) * wk; mvPosition.y -= wk * wk * .6 / max(bh, .1);
+        mvPosition = modelViewMatrix * mvPosition; gl_Position = projectionMatrix * mvPosition;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0;\nvec3 normal = normalize( vNormal );\nvec3 geometryNormal = normal;');
+    }
   };
-  mat.customProgramCacheKey = () => 'bendable';
+  mat.customProgramCacheKey = () => gpuWind ? 'bendable-wind' : 'bendable';
   return mat;
 }
 // list: [{ m: Matrix4, c: Color, g: clump id }] grouped by clump; tip / mid / low: leaf points in geometry space (uv.y = 1 / .6 / .35)
 function addFoliage(geo, mat, depthMat, list, o) {
-  const n = list.length, mesh = new THREE.InstancedMesh(geo, bendable(mat), n);
+  const n = list.length, mesh = new THREE.InstancedMesh(geo, bendable(mat, o.gpuWind), n);
   const bend = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3); bend.setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aBend', bend);
   const L = [], clumps = [];
   list.forEach(({ m, c, g }, i) => {
@@ -641,14 +653,14 @@ function addFoliage(geo, mat, depthMat, list, o) {
     const cl = clumps[clumps.length - 1]; cl.i1 = i + 1; cl.box.expandByPoint(base).expandByPoint(tip);
   });
   clumps.forEach(cl => cl.box.expandByScalar(.6));
-  mesh.castShadow = mesh.receiveShadow = true; mesh.customDepthMaterial = bendable(depthMat); mesh.frustumCulled = false; scene.add(mesh);
-  foliage.push({ mesh, bend, L, clumps, k: o.k, c: o.c, wind: o.wind });
+  mesh.castShadow = mesh.receiveShadow = true; mesh.customDepthMaterial = bendable(depthMat, o.gpuWind); mesh.frustumCulled = false; scene.add(mesh);
+  foliage.push({ mesh, bend, L, clumps, k: o.k, c: o.c, wind: o.wind, gpu: !!o.gpuWind });
 }
 const _fp = new V3(), _fq = new V3(), _fo = new V3(), FWIND = new V3(.8, 0, .55).normalize();
 // cols: flat [x, y, z, r, ...] spheres
 function updateFoliage(dt, cols) {
   dt = clamp(dt, 1e-3, 1 / 30);
-  const now = performance.now() / 1000, pad = .1;
+  const now = performance.now() / 1000, pad = .1; TURF_U.uTime.value = now;
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let j = 0; j < cols.length; j += 4) { const r = cols[j + 3]; x0 = Math.min(x0, cols[j] - r); x1 = Math.max(x1, cols[j] + r); y0 = Math.min(y0, cols[j + 1] - r); y1 = Math.max(y1, cols[j + 1] + r); z0 = Math.min(z0, cols[j + 2] - r); z1 = Math.max(z1, cols[j + 2] + r); }
   const push = (l, rest, w) => { // move the leaf point (rest + D·w) out of every collider it is inside
@@ -658,9 +670,10 @@ function updateFoliage(dt, cols) {
       const d = Math.sqrt(d2) || 1e-3, pen = Math.min((rr - d) / w, l.len * .2); l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;   // capped per frame so a brush near the base can't fling the tip
     } };
   for (const f of foliage) {
-    const A = f.bend.array, damp = Math.exp(-f.c * dt);
+    const A = f.bend.array, damp = Math.exp(-f.c * dt); let dirty = !f.gpu;
     for (const cl of f.clumps) {
       const b = cl.box, hit = cols.length && b.min.x < x1 && b.max.x > x0 && b.min.y < y1 && b.max.y > y0 && b.min.z < z1 && b.max.z > z0;
+      if (f.gpu) { if (!hit && !cl.active) continue; cl.active = false; dirty = true; }   // wind is in the shader: only touched clumps need work
       for (let i = cl.i0; i < cl.i1; i++) {
         const l = f.L[i];
         if (hit || l.V.lengthSq() + l.D.lengthSq() > 1e-8) {
@@ -675,11 +688,12 @@ function updateFoliage(dt, cols) {
           const vm = l.len * 2; l.V.subVectors(l.D, _fq).divideScalar(dt); if (l.V.lengthSq() > vm * vm) l.V.setLength(vm);
           if (l.V.lengthSq() + l.D.lengthSq() < 1e-8) { l.V.set(0, 0, 0); l.D.set(0, 0, 0); }
         }
+        if (f.gpu) { if (l.D.lengthSq() > 0) cl.active = true; _fp.copy(l.D).applyMatrix3(l.inv); A[i * 3] = _fp.x; A[i * 3 + 1] = _fp.y; A[i * 3 + 2] = _fp.z; continue; }
         const s = f.wind * l.len * (Math.sin(now * 1.6 + l.base.x * .37 + l.base.z * .23 + l.ph * .3) * .6 + Math.sin(now * 2.7 + l.base.z * .5 + l.ph) * .4);
         _fp.copy(l.D).addScaledVector(FWIND, s).applyMatrix3(l.inv); A[i * 3] = _fp.x; A[i * 3 + 1] = _fp.y; A[i * 3 + 2] = _fp.z;
       }
     }
-    f.bend.needsUpdate = true;
+    if (dirty) f.bend.needsUpdate = true;
   }
 }
 // clump sites: open soil, off the rocks, away from the log mouth, the dish and each other
@@ -698,7 +712,7 @@ const plantSites = (() => {
   { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .92)); p.setZ(i, y * y * .5); } bg.computeVertexNormals(); }
   const tufts = [[20, -5], [-10, 9], [8, 17], [-22, -17], [27, 6], [-3, -9], [13, 13], [-27, 5], [20, -17], [-15, -1], [4, -15], [-20, 17]];
   const list = [];
-  tufts.forEach(([tx, tz], g) => { if (!clearSpot(tx, tz) || onRock(tx, tz, 1)) return; for (let b = 0; b < 22; b++) { const x = tx + gauss() * .7, z = tz + gauss() * .7;
+  tufts.forEach(([tx, tz], g) => { if (g % 2 || !clearSpot(tx, tz) || onRock(tx, tz, 1)) return; for (let b = 0; b < 22; b++) { const x = tx + gauss() * .7, z = tz + gauss() * .7;
     dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.4, .4), rand(0, 6.3), rand(-.4, .4)); const h = rand(2.2, 5.5); dummy.scale.set(1, h, h * .7); dummy.updateMatrix();
     list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(rand(.2, .26), rand(.35, .6), rand(.45, .7)).convertSRGBToLinear(), g }); } });
   addFoliage(bg, track(new THREE.MeshStandardMaterial({ map: BLADE_TEX, side: THREE.DoubleSide, roughness: .7 }), .3),
@@ -731,9 +745,10 @@ const OVAL_TEX = alphaShape(256, 512, (g, w, h) => {
     for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); p.setY(i, y - arch * .45 * y * y * y); p.setZ(i, arch * y * y + Math.abs(x) * fold + x * x * cup * sstep(.35, .6, y)); }
     g.computeVertexNormals(); return g; };
   const R = seeded(777), rr = (a, b) => a + R() * (b - a);
-  const strap = [], oval = [];
+  const strap = [], oval = []; let si = 0;
   plantSites.forEach(([cx, cz], g) => {
     if (g % 3 !== 2) { // strap clump: 26–40 arching leaves, inner ones shorter and more upright
+      if (si++ % 3) return;                              // only every third clump: open meadow in between
       const n = 26 + (R() * 14 | 0), size = rr(.8, 1.25), hue = rr(-.02, .03);
       for (let i = 0; i < n; i++) { const x = cx + gauss() * .35, z = cz + gauss() * .35, inner = R();
         dummy.position.set(x, groundY(x, z) - .08, z); dummy.rotation.set(lerp(1, .12, inner) + rr(-.12, .12), rr(0, 6.283), rr(-.15, .15));
@@ -751,14 +766,38 @@ const OVAL_TEX = alphaShape(256, 512, (g, w, h) => {
   addFoliage(leafGeo(2, .55, .18, 0), mk(STRAP_TEX), cutoutDepth(STRAP_TEX, .5), strap, { tip: new V3(0, .75, .55), mid: new V3(0, .55, .2), low: new V3(0, .34, .07), k: 26, c: 7, wind: .03 });
   addFoliage(leafGeo(4, .3, .05, .5), mk(OVAL_TEX), cutoutDepth(OVAL_TEX, .5), oval, { tip: new V3(0, .87, .3), mid: new V3(0, .57, .1), low: new V3(0, .34, .04), k: 40, c: 9, wind: .02 });
 }
+// meadow: a dense carpet of short blades in broad drifts over the open soil, dark at the root and sunlit yellow-green at the
+// tips, with rolling wind waves (GPU) — anything walking through parts it like the other foliage
+const TURF_TEX = alphaShape(16, 64, (g, w, h) => { const gr = g.createLinearGradient(0, h, 0, 0);
+  gr.addColorStop(0, '#3a5424'); gr.addColorStop(.3, '#6a9a3c'); gr.addColorStop(.8, '#a6cc5e'); gr.addColorStop(1, '#d4e88e'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+{
+  const g = new THREE.PlaneGeometry(.1, 1, 1, 3); g.translate(0, .5, 0);
+  { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .9)); p.setZ(i, y * y * .25); }
+    const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); }   // lit like a lawn, not like cards: every blade shares the sky normal
+  const R = seeded(9191), rr = (a, b) => a + R() * (b - a), step = matchMedia('(pointer: coarse)').matches ? .26 : .18, cell = 2.5, list = [];
+  for (let x = -TW / 2 + 1.2; x < TW / 2 - 1.2; x += step) for (let z = -TD / 2 + 1.2; z < TD / 2 - 1.2; z += step) {
+    const px = x + rr(-.5, .5) * step, pz = z + rr(-.5, .5) * step;
+    const m = fbm(px * .075, 3.3, pz * .075) * 2.2 + fbm(px * .3, 5.1, pz * .3) * .5 + .05;   // broad drifts with ragged edges
+    if (m < 0 || R() > sstep(0, .3, m) || !clearSpot(px, pz) || onRock(px, pz, .35)) continue;
+    const edge = sstep(0, .45, m), h = rr(.45, 1.1) * (.55 + .45 * edge) * (1 + fbm(px * .5, 8, pz * .5) * .5);
+    dummy.position.set(px, groundY(px, pz) - .04, pz); dummy.rotation.set(rr(-.35, .35), rr(0, 6.283), rr(-.35, .35)); dummy.scale.set(rr(.8, 1.25), h, h); dummy.updateMatrix();
+    const tone = fbm(px * .12, 9.7, pz * .12), dry = R() < .06;
+    list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(dry ? rr(.12, .15) : .235 + tone * .09 + rr(-.012, .012), dry ? .4 : .42 + rr(0, .14), dry ? rr(.58, .68) : .47 + tone * .3 + rr(-.05, .05)).convertSRGBToLinear(),
+      g: Math.floor((px + TW / 2) / cell) * 100 + Math.floor((pz + TD / 2) / cell) });
+  }
+  list.sort((a, b) => a.g - b.g);                        // clumps = 2.5-unit cells, so a spider only wakes the blades near it
+  addFoliage(g, track(new THREE.MeshStandardMaterial({ map: TURF_TEX, side: THREE.DoubleSide, roughness: .8 }), .3),
+    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .25), mid: new V3(0, .6, .09), low: new V3(0, .35, .03), k: 70, c: 11, gpuWind: true });
+  foliage[foliage.length - 1].mesh.castShadow = false;   // a carpet this dense would only darken itself; it still receives shadows
+}
 // dry leaf litter, curled
 {
   const g = new THREE.PlaneGeometry(1, 2, 6, 10); g.rotateX(-Math.PI / 2);
   { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, x * x * .5 + Math.pow(Math.max(0, -z - .3), 2) * .5 + Math.sin(z * 3) * .04); } g.computeVertexNormals(); }
   const list = [];
-  for (let i = 0; i < 110; i++) { const x = rand(-TW / 2 + 2, TW / 2 - 2), z = rand(-TD / 2 + 2, TD / 2 - 2); if (Math.hypot(x - dishPos.x, z - dishPos.z) < 5 || onRock(x, z, 1.2)) continue;
+  for (let i = 0; i < 75; i++) { const x = rand(-TW / 2 + 2, TW / 2 - 2), z = rand(-TD / 2 + 2, TD / 2 - 2); if (Math.hypot(x - dishPos.x, z - dishPos.z) < 5 || onRock(x, z, 1.2)) continue;
     { const q = logLocal(x, z); if (Math.abs(q.al) < LOG.len / 2 + 1 && Math.abs(q.sd) > LOG_RI - 1.2 && Math.abs(q.sd) < LOG.R + 1.2) continue; }
-    dummy.position.set(x, groundY(x, z) + .05, z); dummy.rotation.set(rand(-.15, .15), rand(0, 6.3), rand(-.15, .15)); dummy.scale.setScalar(rand(.7, 1.6)); dummy.updateMatrix();
+    dummy.position.set(x, groundY(x, z) + .05, z); dummy.rotation.set(rand(-.15, .15), rand(0, 6.3), rand(-.15, .15)); dummy.scale.setScalar(rand(1.5, 2.8)); dummy.updateMatrix();
     const fresh = Math.random() < .08;
     list.push([dummy.matrix.clone(), (fresh ? new THREE.Color().setHSL(rand(.16, .22), .3, rand(.26, .34)) : new THREE.Color().setHSL(rand(.05, .09), rand(.25, .45), rand(.16, .34))).convertSRGBToLinear()]); }
   const lm = new THREE.InstancedMesh(g, track(new THREE.MeshStandardMaterial({ map: LEAF_TEX, alphaTest: .5, side: THREE.DoubleSide, roughness: .75 }), .25), list.length);
@@ -780,7 +819,7 @@ const OVAL_TEX = alphaShape(256, 512, (g, w, h) => {
 {
   const tb = track(new THREE.MeshStandardMaterial({ map: BARK.map, normalMap: BARK.normalMap, color: 0xb0a090, roughness: .9 }), .3);
   for (let i = 0; i < 16; i++) { const x = rand(-26, 26), z = rand(-17, 17); if (!clearSpot(x, z) || onRock(x, z, 3)) continue;
-    const len = rand(3, 8), r = rand(.07, .18), g = new THREE.CylinderGeometry(r * .6, r, len, 8, 6); g.rotateZ(Math.PI / 2);
+    const len = rand(5, 11), r = rand(.15, .35), g = new THREE.CylinderGeometry(r * .6, r, len, 8, 6); g.rotateZ(Math.PI / 2);
     { const p = g.attributes.position; for (let j = 0; j < p.count; j++) p.setY(j, p.getY(j) + Math.sin(p.getX(j) * .8 + i) * .12); }
     const m = new THREE.Mesh(g, tb); m.position.set(x, groundY(x, z) + r * .6, z); m.rotation.y = rand(0, 6.3); m.castShadow = m.receiveShadow = true; scene.add(m); }
 }
