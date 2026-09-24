@@ -461,7 +461,7 @@ const fxaa = new THREE.ShaderPass(THREE.FXAAShader); composer.addPass(fxaa);
 renderer.shadowMap.autoUpdate = false;              // shadows once per frame, not again for the DOF depth pass
 function setShadowRes(n) { [[led, n], [lamp, n / 2]].forEach(([l, s]) => { if (l.shadow.mapSize.x !== s) { l.shadow.mapSize.set(s, s); if (l.shadow.map) { l.shadow.map.dispose(); l.shadow.map = null; } } }); }
 function resize() {
-  const hi = quality === 'high', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 1.75) : Math.min(devicePixelRatio, 1);
+  const hi = quality === 'high', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 2) : Math.min(devicePixelRatio, 1.5);
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
   camera.aspect = w / h;
   camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64);   // portrait phones: widen so the tank still fits
