@@ -46,9 +46,11 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
 .species{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .species .btn{padding:8px 6px;font-size:13px;line-height:1.3}
 .hint{font-size:12px;color:var(--mute)}
+.vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,transparent 55%,rgba(5,4,3,.6) 100%)}
 </style>
 
 <canvas id="c"></canvas>
+<div class="vig"></div>
 
 <div class="hud" id="hud" hidden>
   <div><h1 id="hName">-</h1><div class="sci" id="hSp">-</div></div>
@@ -67,7 +69,8 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
   <button class="btn" id="tCricket">🦗 ให้จิ้งหรีด</button>
   <button class="btn" id="tDubia">🪳 ให้แมลงสาบดูเบีย</button>
   <button class="btn" id="tMist">💧 พ่นน้ำ</button>
-  <button class="btn on" id="tLamp">💡 ไฟอุ่น</button>
+  <button class="btn on" id="tLed">💡 ไฟตู้</button>
+  <button class="btn on" id="tLamp">🔥 ไฟอุ่น</button>
   <button class="btn on" id="tVib">〰 แรงสั่น</button>
   <button class="btn" id="tFollow">🎥 ตามแมงมุม</button>
   <button class="btn" id="tFast">⏩ เร่งเวลา</button>
@@ -108,7 +111,7 @@ const SPECIES = {
 let S = null;
 const SAVE_KEY = 'tarantula3d-v1';
 function newState(name, sp) {
-  return { name, sp, span: 9, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true,
+  return { name, sp, span: 9, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true, led: true,
            phase: 'normal', phaseT: 0 };
 }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
@@ -143,11 +146,17 @@ controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.47;
 controls.minDistance = 10; controls.maxDistance = 110;
 
-const hemi = new THREE.HemisphereLight(0xcfd8ff, 0x2a1c10, 0.35); scene.add(hemi);
-const lamp = new THREE.SpotLight(0xffd29a, 1.4, 160, Math.PI / 4.2, 0.6, 1.2);
-lamp.position.set(-12, 55, 8); lamp.target.position.set(0, 0, 0);
-lamp.castShadow = true; lamp.shadow.mapSize.set(2048, 2048); lamp.shadow.bias = -0.0004;
-scene.add(lamp, lamp.target);
+renderer.toneMappingExposure = 1.15;
+const hemi = new THREE.HemisphereLight(0xdfe6ff, 0x2a1c10, 0.3); scene.add(hemi);
+// heat lamp: warm basking bulb over the left side
+const lamp = new THREE.SpotLight(0xffb866, 0.9, 90, Math.PI / 3.2, 0.9, 1.4);
+lamp.position.set(-14, 40, 2); lamp.target.position.set(-14, 0, 0); scene.add(lamp, lamp.target);
+// tank LED bar: cool white, main shadow caster
+const led = new THREE.SpotLight(0xf3f6ff, 1.6, 120, Math.PI / 2.6, 0.85, 1.1);
+led.position.set(0, 40, -4); led.target.position.set(0, 0, 3);
+led.castShadow = true; led.shadow.mapSize.set(2048, 2048); led.shadow.bias = -0.0003; led.shadow.radius = 3;
+scene.add(led, led.target);
+const fill = new THREE.DirectionalLight(0xffe9cf, 0.18); fill.position.set(10, 12, 40); scene.add(fill);
 const moon = new THREE.DirectionalLight(0x6f86c8, 0.0); moon.position.set(30, 50, -20); scene.add(moon);
 
 /* ---------- Tank ---------- */
@@ -156,10 +165,26 @@ function noise2(x, z) {
   return Math.sin(x * .21 + 1.3) * Math.cos(z * .17 - .4) * .6 + Math.sin(x * .53 + z * .41) * .25 + Math.cos(x * 1.1 - z * .9) * .08;
 }
 const BURROW = new THREE.Vector3(-20, 0, -11);
-function groundY(x, z) {
+function soilY(x, z) {
   let y = noise2(x, z) * 0.9 + 1.2;
   const d = Math.hypot(x - BURROW.x, z - BURROW.z);
   if (d < 6) y -= (1 - d / 6) * 1.6;           // burrow mouth dip
+  return y;
+}
+// rocks are part of the walkable surface, so legs plant on them and the spider climbs over
+const ROCKS = [{ x: 6, z: -10, r: 5.6, h: 4.4 }, { x: -4, z: 12, r: 3.4, h: 2.2 }, { x: 24, z: -11, r: 4.2, h: 3.2 },
+               { x: -27, z: 9, r: 3, h: 2.3 }, { x: 11, z: -3, r: 2.6, h: 1.5 }, { x: -9, z: -15, r: 2.2, h: 1.4 }];
+ROCKS.forEach(k => k.base = soilY(k.x, k.z) - .35);
+function rockY(k, x, z) {
+  const dx = x - k.x, dz = z - k.z, a = Math.atan2(dz, dx);
+  const rr = k.r * (1 + .13 * Math.sin(a * 3 + k.x) + .07 * Math.sin(a * 5 + k.z));
+  const q = Math.hypot(dx, dz) / rr; if (q >= 1) return -1e9;
+  const bump = 1 + .07 * Math.sin(dx * 1.7 + k.z) * Math.cos(dz * 1.9 + k.x) + .03 * Math.sin(dx * 4.1 - dz * 3.7);
+  return k.base + k.h * Math.pow(1 - q * q, .55) * bump;
+}
+function groundY(x, z) {
+  let y = soilY(x, z);
+  for (const k of ROCKS) { if (Math.abs(x - k.x) < k.r * 1.25 && Math.abs(z - k.z) < k.r * 1.25) y = Math.max(y, rockY(k, x, z)); }
   return y;
 }
 function canvasTex(w, h, draw, rep) {
@@ -179,7 +204,7 @@ const soilTex = canvasTex(512, 512, (g, w, h) => {
     const x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); g.lineTo(x + rand(-14,14), y + rand(-14,14)); g.stroke(); }
 }, 3);
 const soilGeo = new THREE.PlaneGeometry(TW, TD, 120, 80); soilGeo.rotateX(-Math.PI / 2);
-{ const p = soilGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, groundY(p.getX(i), p.getZ(i))); soilGeo.computeVertexNormals(); }
+{ const p = soilGeo.attributes.position; for (let i = 0; i < p.count; i++) p.setY(i, soilY(p.getX(i), p.getZ(i))); soilGeo.computeVertexNormals(); }
 const soil = new THREE.Mesh(soilGeo, new THREE.MeshStandardMaterial({ map: soilTex, roughness: 1 }));
 soil.receiveShadow = true; scene.add(soil);
 
@@ -200,7 +225,7 @@ soilSide.position.set(0, 0.9, TD / 2 - 0.02); scene.add(soilSide);
 // cork bark hide over burrow
 const barkTex = canvasTex(256, 256, (g, w, h) => {
   g.fillStyle = '#4a3322'; g.fillRect(0, 0, w, h);
-  for (let i = 0; i < 160; i++) { g.strokeStyle = `rgba(${rand(20,90)},${rand(12,60)},${rand(5,35)},.8)`; g.lineWidth = rand(1, 4);
+  for (let i = 0; i < 160; i++) { { const r = rand(25, 95); g.strokeStyle = `rgba(${r|0},${r*.72|0},${r*.48|0},.8)`; } g.lineWidth = rand(1, 4);
     g.beginPath(); const x = Math.random() * w; g.moveTo(x, 0); g.bezierCurveTo(x + rand(-20,20), h * .3, x + rand(-20,20), h * .7, x + rand(-10,10), h); g.stroke(); }
 });
 barkTex.repeat.set(2, 1);
@@ -214,31 +239,108 @@ silk.rotation.x = -Math.PI / 2; silk.position.copy(hole.position).y += 0.06; sce
 
 // water dish
 const dishPos = new THREE.Vector3(18, 0, 9);
-const dish = new THREE.Mesh(new THREE.CylinderGeometry(4, 3.4, 1.4, 32), new THREE.MeshStandardMaterial({ color: 0x8a8175, roughness: .5 }));
+const dish = new THREE.Mesh(new THREE.CylinderGeometry(4, 3.4, 1.4, 40), new THREE.MeshStandardMaterial({ color: 0x5a5249, roughness: .8, map: soilTex }));
 dish.position.set(dishPos.x, groundY(dishPos.x, dishPos.z) + 0.4, dishPos.z); dish.castShadow = dish.receiveShadow = true; scene.add(dish);
-const water = new THREE.Mesh(new THREE.CircleGeometry(3.5, 32), new THREE.MeshPhysicalMaterial({ color: 0x3d6f86, roughness: .05, transparent: true, opacity: .8 }));
-water.rotation.x = -Math.PI / 2; water.position.set(dishPos.x, dish.position.y + 0.55, dishPos.z); scene.add(water);
+const water = new THREE.Mesh(new THREE.CircleGeometry(3.5, 32), new THREE.MeshPhysicalMaterial({ color: 0x5d8a94, roughness: .02, metalness: .2, clearcoat: 1, transparent: true, opacity: .88 }));
+water.rotation.x = -Math.PI / 2; water.position.set(dishPos.x, dish.position.y + 0.72, dishPos.z); scene.add(water);
 
 // rocks + leaf litter + moss
-const rockMat = new THREE.MeshStandardMaterial({ color: 0x6b6258, roughness: .95, flatShading: true });
-const obstacles = [{ x: dishPos.x, z: dishPos.z, r: 4.5 }];
-[[8, -12, 3], [-4, 13, 2.2], [24, -10, 2.6], [-26, 10, 2]].forEach(([x, z, r]) => {
-  const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 1), rockMat); m.scale.y = .6;
-  m.position.set(x, groundY(x, z) + r * .2, z); m.rotation.y = Math.random() * 6; m.castShadow = m.receiveShadow = true; scene.add(m);
-  obstacles.push({ x, z, r: r + 1 });
+const obstacles = [{ x: dishPos.x, z: dishPos.z, r: 4.5 }];   // things the spider walks around (rocks it climbs)
+const preyObs = ROCKS.concat([{ x: dishPos.x, z: dishPos.z, r: 4.1, h: 1.4 }]); // small prey bump into these
+const rockTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#8a8378'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 9000; i++) { const v = rand(60, 190) | 0; g.fillStyle = `rgba(${v},${v - 4},${v - 10},${rand(.15,.5)})`; const s = rand(.5, 2.5); g.fillRect(Math.random() * w, Math.random() * h, s, s); }
+  for (let i = 0; i < 40; i++) { g.strokeStyle = `rgba(40,36,30,${rand(.2,.5)})`; g.lineWidth = rand(.5, 1.5); g.beginPath(); let x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y);
+    for (let j = 0; j < 5; j++) { x += rand(-18, 18); y += rand(-18, 18); g.lineTo(x, y); } g.stroke(); }
+});
+ROCKS.forEach(k => {
+  const n = 56, geo = new THREE.PlaneGeometry(k.r * 2.7, k.r * 2.7, n, n); geo.rotateX(-Math.PI / 2);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const x = p.getX(i) + k.x, z = p.getZ(i) + k.z; const y = rockY(k, x, z); p.setY(i, y > -1e8 ? y : soilY(x, z) - .8); }
+  geo.computeVertexNormals();
+  const nrm = geo.attributes.normal, col = [];
+  const tone = rand(.8, 1.05);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i) + k.x, z = p.getZ(i) + k.z, top = (p.getY(i) - k.base) / k.h;
+    const c = new THREE.Color().setHSL(.08, .06, .42 * tone + noise2(x * 3, z * 3) * .05);
+    const moss = nrm.getY(i) > .7 && top > .45 && noise2(x * 2.3 + 9, z * 2.3) > .05;   // moss grows on the damp tops
+    if (moss) c.setHSL(rand(.22, .28), .5, .2 + rand(0, .06));
+    c.convertSRGBToLinear(); col.push(c.r, c.g, c.b);
+  }
+  geo.translate(k.x, 0, k.z);
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: rockTex, vertexColors: true, roughness: .9, flatShading: true }));
+  m.castShadow = m.receiveShadow = true; scene.add(m);
 });
 const leafShape = new THREE.Shape(); leafShape.moveTo(0, 0); leafShape.quadraticCurveTo(1.4, 1.8, 0, 4.2); leafShape.quadraticCurveTo(-1.4, 1.8, 0, 0);
 const leafGeo = new THREE.ShapeGeometry(leafShape, 8); leafGeo.rotateX(-Math.PI / 2);
-for (let i = 0; i < 38; i++) {
+for (let i = 0; i < 55; i++) {
   const x = rand(-TW/2 + 3, TW/2 - 3), z = rand(-TD/2 + 3, TD/2 - 3);
-  const m = new THREE.Mesh(leafGeo, new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(rand(.05,.11), rand(.35,.6), rand(.14,.3)), roughness: 1, side: THREE.DoubleSide }));
+  const m = new THREE.Mesh(leafGeo, new THREE.MeshStandardMaterial({ color: (Math.random() < .3 ? new THREE.Color().setHSL(rand(.2,.28), rand(.4,.6), rand(.16,.26)) : new THREE.Color().setHSL(rand(.05,.11), rand(.35,.6), rand(.14,.3))).convertSRGBToLinear(), roughness: 1, side: THREE.DoubleSide }));
   m.position.set(x, groundY(x, z) + 0.06, z); m.rotation.y = Math.random() * 6; m.scale.setScalar(rand(.6, 1.2)); m.receiveShadow = true; scene.add(m);
 }
-const mossMat = new THREE.MeshStandardMaterial({ color: 0x4f6a2a, roughness: 1 });
-for (let i = 0; i < 70; i++) {
-  const x = rand(8, 28), z = rand(-18, -4); const r = rand(.4, 1);
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 7, 5), mossMat); m.scale.y = .45; m.position.set(x, groundY(x, z), z); m.receiveShadow = true; scene.add(m);
+const dummy = new THREE.Object3D(); dummy.rotation.order = 'YXZ';
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+const clearSpot = (x, z, m) => Math.abs(x) < TW / 2 - 1 && Math.abs(z) < TD / 2 - 1 && Math.hypot(x - BURROW.x, z - BURROW.z) > 7 && Math.hypot(x - dishPos.x, z - dishPos.z) > 4.8 + (m || 0);
+// cushion moss carpets
+{
+  const patches = [[15, -16, 7], [27, -1, 5], [-6, -17, 6], [-28, -1, 4], [3, 17, 5], [27, 16, 4], [-15, 16, 6], [-2, 3, 3]];
+  const list = [];
+  patches.forEach(([cx, cz, r]) => { for (let i = 0; i < r * 55; i++) { const x = cx + gauss() * r, z = cz + gauss() * r; if (clearSpot(x, z)) list.push([x, z]); } });
+  const moss = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshStandardMaterial({ roughness: 1 }), list.length);
+  list.forEach(([x, z], i) => { const s = rand(.35, .95); dummy.position.set(x, groundY(x, z) - s * .1, z); dummy.rotation.set(0, rand(0, 6), 0); dummy.scale.set(s, s * rand(.3, .5), s); dummy.updateMatrix();
+    moss.setMatrixAt(i, dummy.matrix); moss.setColorAt(i, new THREE.Color().setHSL(rand(.2, .29), rand(.45, .7), rand(.16, .3)).convertSRGBToLinear()); });
+  moss.receiveShadow = true; scene.add(moss);
 }
+// ferns (arched fronds of leaflets) and sedge tufts
+{
+  const ls = new THREE.Shape(); ls.moveTo(0, 0); ls.quadraticCurveTo(.5, .22, 1, 0); ls.quadraticCurveTo(.5, -.22, 0, 0);
+  const lg = new THREE.ShapeGeometry(ls, 5); lg.rotateX(-Math.PI / 2);
+  const ferns = [[25, -15, 9], [-1, -16.5, 8], [-25, 14, 7], [25, 14, 6.5], [15, -16, 6.5]];
+  const mats = [];
+  ferns.forEach(([fx, fz, size]) => { const by = groundY(fx, fz);
+    for (let f = 0; f < 11; f++) { const yaw = f / 11 * Math.PI * 2 + rand(-.2, .2), len = size * rand(.7, 1.05), dir = new THREE.Vector2(Math.sin(yaw), Math.cos(yaw)), arch = rand(.55, .8);
+      for (let k = 1; k <= 18; k++) { const t = k / 19; const px = fx + dir.x * len * t * .8, pz = fz + dir.y * len * t * .8, py = by + len * (arch * t - arch * .95 * t * t) + .3;
+        const ll = len * .18 * Math.pow(1 - t, .6) + .2;
+        if (Math.abs(px) > TW / 2 - 1.5 || Math.abs(pz) > TD / 2 - 1.5) continue;
+        [-1, 1].forEach(sd => { const ang = yaw + sd * 1.25; const vx = Math.sin(ang), vz = Math.cos(ang);
+          dummy.position.set(px, py, pz); dummy.rotation.set(0, Math.atan2(-vz, vx), 0); dummy.rotateZ(-.35 - t * .5); dummy.scale.set(ll, 1, ll * 1.2); dummy.updateMatrix();
+          mats.push([dummy.matrix.clone(), new THREE.Color().setHSL(rand(.24, .3), rand(.5, .7), .16 + t * .14 + rand(0, .04)).convertSRGBToLinear()]); }); } } });
+  const fm = new THREE.InstancedMesh(lg, new THREE.MeshStandardMaterial({ roughness: .75, side: THREE.DoubleSide }), mats.length);
+  mats.forEach(([m, c], i) => { fm.setMatrixAt(i, m); fm.setColorAt(i, c); }); fm.castShadow = true; fm.receiveShadow = true; scene.add(fm);
+  const bg = new THREE.PlaneGeometry(.22, 1, 1, 5); bg.translate(0, .5, 0);
+  { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .9)); p.setZ(i, y * y * .45); } bg.computeVertexNormals(); }
+  const tufts = [[20, -4], [-12, 8], [8, 17], [-24, -17], [26, 6], [-3, -8], [13, 14], [-27, 2], [21, -17], [-16, -3]];
+  const blades = [];
+  tufts.forEach(([tx, tz]) => { if (!clearSpot(tx, tz)) return; for (let b = 0; b < 16; b++) { const x = tx + gauss() * .6, z = tz + gauss() * .6;
+    dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.35, .35), rand(0, 6.3), rand(-.35, .35)); const h = rand(2.5, 5.5); dummy.scale.set(1, h, h * .6); dummy.updateMatrix();
+    blades.push([dummy.matrix.clone(), new THREE.Color().setHSL(rand(.2, .27), rand(.45, .65), rand(.2, .34)).convertSRGBToLinear()]); } });
+  const gm = new THREE.InstancedMesh(bg, new THREE.MeshStandardMaterial({ roughness: .8, side: THREE.DoubleSide }), blades.length);
+  blades.forEach(([m, c], i) => { gm.setMatrixAt(i, m); gm.setColorAt(i, c); }); gm.castShadow = true; scene.add(gm);
+}
+// cork background on the back glass, like a real terrarium
+{
+  const t = canvasTex(512, 256, (g, w, h) => { g.fillStyle = '#3d2a1b'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 500; i++) { { const r = rand(25, 105); g.fillStyle = `rgba(${r|0},${r*.72|0},${r*.48|0},${rand(.3,.8)})`; } g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, rand(2, 14), rand(1, 5), rand(0, 3), 0, 7); g.fill(); }
+    for (let i = 0; i < 220; i++) { g.fillStyle = `rgba(${rand(50,90)|0},${rand(90,130)|0},${rand(30,50)|0},${rand(.3,.6)})`; g.beginPath(); g.arc(Math.random() * w, h * .5 + Math.random() * h * .5, rand(1, 4), 0, 7); g.fill(); } });
+  t.repeat.set(2, 1);
+  const geo = new THREE.PlaneGeometry(TW - .4, TH, 80, 40); const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setZ(i, (noise2(p.getX(i) * .6, p.getY(i) * .8) + 1) * .8);
+  geo.computeVertexNormals();
+  const cork = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: t, roughness: 1 })); cork.position.set(0, TH / 2, -TD / 2 + .15); cork.receiveShadow = true; scene.add(cork);
+}
+// light fixtures on the lid
+const ledBar = new THREE.Mesh(new THREE.BoxGeometry(TW * .8, .5, 2.4), new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xf3f6ff, emissiveIntensity: 1 }));
+ledBar.position.set(0, TH + .3, -4); scene.add(ledBar);
+const lampHood = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 4.2, 4, 24, 1, true), new THREE.MeshStandardMaterial({ color: 0x2b2622, metalness: .7, roughness: .4, side: THREE.DoubleSide }));
+lampHood.position.set(-14, TH + 3, 2); scene.add(lampHood);
+const bulb = new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 12), new THREE.MeshStandardMaterial({ color: 0x331a08, emissive: 0xff9a3c, emissiveIntensity: 1 }));
+bulb.position.set(-14, TH + 1.6, 2); scene.add(bulb);
+// dust motes drifting in the light
+const dustGeo = new THREE.BufferGeometry(); const dustN = 260; const dp = new Float32Array(dustN * 3);
+for (let i = 0; i < dustN; i++) { dp[i * 3] = rand(-TW/2, TW/2); dp[i * 3 + 1] = rand(2, TH); dp[i * 3 + 2] = rand(-TD/2, TD/2); }
+dustGeo.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xfff1d6, size: .18, transparent: true, opacity: .45, depthWrite: false })); scene.add(dust);
 
 /* ---------- Spider ---------- */
 const UP = new THREE.Vector3(0, 1, 0);
@@ -250,6 +352,34 @@ function hairTex(hex) {
       g.strokeStyle = '#' + cc.getHexString(); g.lineWidth = rand(.4, 1.2); const x = Math.random() * w, y = Math.random() * h;
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + rand(-2, 2), y + rand(2, 6)); g.stroke(); }
   });
+}
+// Setae: each hair is two crossed tapered triangles, lit with the skin normal so the coat reads soft.
+function hairMesh(list, rootCol, tipCol, mat) {
+  const n = list.length, P = new Float32Array(n * 18), N = new Float32Array(n * 18), C = new Float32Array(n * 18);
+  const r0 = new THREE.Color(rootCol), r1 = new THREE.Color(tipCol), tmp = new THREE.Vector3(), s1 = new THREE.Vector3(), s2 = new THREE.Vector3(), tip = new THREE.Vector3();
+  list.forEach((h, i) => {
+    const [p, d, nrm, len, w] = h;
+    tmp.set(Math.random() - .5, Math.random() - .5, Math.random() - .5); s1.crossVectors(d, tmp).normalize(); s2.crossVectors(d, s1).normalize();
+    tip.copy(d).multiplyScalar(len).add(p);
+    const v = rand(.75, 1.2), cr = r0.clone().multiplyScalar(v), ct = r1.clone().multiplyScalar(v * rand(.85, 1.15));
+    const verts = [p.clone().addScaledVector(s1, -w), p.clone().addScaledVector(s1, w), tip, p.clone().addScaledVector(s2, -w), p.clone().addScaledVector(s2, w), tip];
+    verts.forEach((q, j) => { const o = i * 18 + j * 3; P[o] = q.x; P[o + 1] = q.y; P[o + 2] = q.z; N[o] = nrm.x; N[o + 1] = nrm.y; N[o + 2] = nrm.z;
+      const c = (j % 3 === 2) ? ct : cr; C[o] = c.r; C[o + 1] = c.g; C[o + 2] = c.b; });
+  });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.BufferAttribute(N, 3)); g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  return new THREE.Mesh(g, mat);
+}
+function jitter(v, a) { return v.add(new THREE.Vector3(rand(-a, a), rand(-a, a), rand(-a, a))).normalize(); }
+function ellipsoidHairs(center, sc, count, lenA, lenB, back, w) {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const u = new THREE.Vector3(gauss(), gauss(), gauss()).normalize(); if (u.y < -.55) continue;
+    const p = new THREE.Vector3(u.x * sc.x, u.y * sc.y, u.z * sc.z).add(center);
+    const nrm = new THREE.Vector3(u.x / sc.x, u.y / sc.y, u.z / sc.z).normalize();
+    const d = jitter(nrm.clone().add(new THREE.Vector3(0, 0, -back)), .35);
+    out.push([p, d, nrm, rand(lenA, lenB), w]);
+  }
+  return out;
 }
 class Spider {
   constructor(sp, span) {
@@ -264,6 +394,7 @@ class Spider {
     const sp = this.sp; const L = this.span;
     const mats = this.mats = {
       body: new THREE.MeshStandardMaterial({ color: sp.body, map: hairTex(sp.body), roughness: .85 }),
+      hair: new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .65, metalness: sp.sheen * .8 }),
       leg: new THREE.MeshStandardMaterial({ color: sp.leg, map: hairTex(sp.leg), roughness: .7, metalness: sp.sheen }),
       fang: new THREE.MeshStandardMaterial({ color: 0x0a0806, roughness: .3 }),
       eye: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: .05, metalness: .6 }),
@@ -289,6 +420,11 @@ class Spider {
     });
     this.root.add(ceph, abd, ped, eyes);
     this.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    const bodyHair = [].concat(
+      ellipsoidHairs(ceph.position, ceph.scale, 1100, L * .008, L * .016, 1.4, L * .0016),   // carapace: short velvety pile
+      ellipsoidHairs(abd.position, abd.scale, 2600, L * .02, L * .05, .5, L * .002),         // abdomen: long shaggy setae
+      ...this.chel.map((f, j) => ellipsoidHairs(new THREE.Vector3((j ? 1 : -1) * L * .025, -L * .01, L * .13), new THREE.Vector3(L * .024, L * .026, L * .04), 160, L * .01, L * .02, -.6, L * .0015)));
+    this.root.add(hairMesh(bodyHair, sp.body, sp.hair, mats.hair));
     // legs: 4 pairs, angle from forward (+z), reach, segment lengths
     const cfg = [[.55, .52, .30, .30], [1.05, .46, .26, .27], [1.75, .44, .25, .26], [2.45, .54, .30, .32]];
     this.legs = [];
@@ -298,18 +434,27 @@ class Spider {
       const rest = dir.clone().multiplyScalar(L * reach).add(new THREE.Vector3(0, 0, L * .04));
       const leg = { s, i, dir, hip, rest, a: L * a, b: L * b, group: (i + (s > 0 ? 0 : 1)) % 2,
         foot: new THREE.Vector3(), from: new THREE.Vector3(), to: new THREE.Vector3(), t: 1, stepping: false,
-        segA: this.seg(L * .022), segB: this.seg(L * .016), knee: new THREE.Mesh(new THREE.SphereGeometry(L * .022, 8, 6), mats.leg) };
+        segA: this.seg(L * .024, L * a, 330), segB: this.seg(L * .019, L * b, 420), knee: new THREE.Mesh(new THREE.SphereGeometry(L * .024, 10, 8), mats.leg) };
       leg.knee.castShadow = true; scene.add(leg.knee);
       this.legs.push(leg);
     }));
     // pedipalps (short leg-like sensory appendages)
     this.palps = [1, -1].map(s => ({ s, hip: new THREE.Vector3(s * L * .035, -L * .005, L * .12), rest: new THREE.Vector3(s * L * .07, 0, L * .28),
-      a: L * .12, b: L * .12, foot: new THREE.Vector3(), segA: this.seg(L * .018), segB: this.seg(L * .02), knee: null }));
+      a: L * .12, b: L * .12, foot: new THREE.Vector3(), segA: this.seg(L * .018, L * .12, 120), segB: this.seg(L * .021, L * .12, 180), knee: null }));
     this.placeFeet();
   }
-  seg(r) { const g = new THREE.CylinderGeometry(r * .85, r, 1, 8); g.translate(0, .5, 0); const m = new THREE.Mesh(g, this.mats.leg); m.castShadow = true; scene.add(m); return m; }
+  seg(r, len, hairs) {
+    const g = new THREE.CylinderGeometry(r * .8, r, len, 10); g.translate(0, len / 2, 0);
+    const m = new THREE.Mesh(g, this.mats.leg); m.castShadow = true; scene.add(m);
+    const L = this.span, list = [];
+    for (let i = 0; i < hairs; i++) { const th = rand(0, Math.PI * 2), t = Math.random() * len, rad = lerp(r, r * .8, t / len);
+      const nrm = new THREE.Vector3(Math.cos(th), 0, Math.sin(th));
+      list.push([new THREE.Vector3(nrm.x * rad, t, nrm.z * rad), jitter(nrm.clone().add(new THREE.Vector3(0, 1.1, 0)), .3), nrm, rand(L * .018, L * .042), L * .0017]); } // setae point toward the leg tip
+    m.add(hairMesh(list, this.sp.leg, this.sp.hair, this.mats.hair));
+    return m;
+  }
   dispose() {
-    const kill = o => { scene.remove(o); o.geometry && o.geometry.dispose(); };
+    const kill = o => { scene.remove(o); o.traverse(c => c.geometry && c.geometry.dispose()); };
     scene.remove(this.root); this.legs.forEach(l => { kill(l.segA); kill(l.segB); kill(l.knee); }); this.palps.forEach(p => { kill(p.segA); kill(p.segB); });
   }
   worldOf(v) { return this.root.localToWorld(v.clone()); }
@@ -320,15 +465,20 @@ class Spider {
     this.palps.forEach(p => { const w = this.worldOf(p.rest); w.y = groundY(w.x, w.z); p.foot.copy(w); });
   }
   updateRoot(dt) {
-    const gy = groundY(this.pos.x, this.pos.z);
+    const d = this.span * .22, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw), x = this.pos.x, z = this.pos.z;
+    const c = groundY(x, z), hF = groundY(x + sy * d, z + cy * d), hB = groundY(x - sy * d, z - cy * d), hL = groundY(x + cy * d, z - sy * d), hR = groundY(x - cy * d, z + sy * d);
+    const gy = Math.max(c, (hF + hB + hL + hR + 2 * c) / 6);
+    const k = clamp((dt || 1) * 8, 0, 1);
+    this.slopeP = lerp(this.slopeP || 0, -Math.atan2(hF - hB, 2 * d), k);
+    this.slopeR = lerp(this.slopeR || 0, Math.atan2(hL - hR, 2 * d), k);
     const bob = Math.sin(performance.now() * .012) * this.vel.length() * .004;
-    this.root.position.set(this.pos.x, gy + this.bodyH() * (1 - this.flip * .5) + bob - this.hidden * this.span * .3, this.pos.z);
-    this.root.rotation.set(this.pitch, this.yaw, this.roll);
+    this.root.position.set(x, gy + this.bodyH() * (1 - this.flip * .5) + bob - this.hidden * this.span * .3, z);
+    this.root.rotation.set(this.pitch + this.slopeP * (1 - this.flip), this.yaw, this.roll + this.slopeR * (1 - this.flip));
     this.root.updateMatrixWorld(true);
   }
   // analytic two-bone IK, knee pushed upward like a real tarantula
   solve(leg, hipW, target, bendDir) {
-    const d = clamp(hipW.distanceTo(target), 1e-3, (leg.a + leg.b) * .999);
+    const d = clamp(hipW.distanceTo(target), Math.abs(leg.a - leg.b) + 1e-3, (leg.a + leg.b) * .999);
     const dir = target.clone().sub(hipW).normalize();
     const x = (leg.a * leg.a - leg.b * leg.b + d * d) / (2 * d); const y = Math.sqrt(Math.max(0, leg.a * leg.a - x * x));
     const perp = bendDir.clone().sub(dir.clone().multiplyScalar(bendDir.dot(dir))).normalize();
@@ -337,7 +487,7 @@ class Spider {
     this.orient(leg.segA, hipW, knee); this.orient(leg.segB, knee, foot);
     if (leg.knee) leg.knee.position.copy(knee);
   }
-  orient(m, a, b) { const v = b.clone().sub(a); const len = v.length(); m.position.copy(a); m.quaternion.setFromUnitVectors(UP, v.normalize()); m.scale.set(1, len, 1); }
+  orient(m, a, b) { m.position.copy(a); m.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize()); }
   update(dt, speedMul) {
     this.updateRoot(dt);
     const L = this.span; const moving = this.vel.length();
@@ -383,6 +533,8 @@ class Spider {
     this.mats.body.color.copy(new THREE.Color(this.sp.body).lerp(new THREE.Color(0xcfc6b8), pale * .45));
     this.chel.forEach(f => f.material.color.setHex(pale > .3 ? 0xd9d2c4 : 0x0a0806));
     // pre-molt: abdomen darkens as the new skin forms underneath
+    this.mats.hair.emissive.setRGB(.25, .23, .2).multiplyScalar(pale);
+    this.mats.hair.color.setScalar(S.phase === 'premolt' ? .75 : 1);
     if (S.phase === 'premolt') this.mats.body.color.multiplyScalar(.7);
   }
 }
@@ -434,6 +586,8 @@ class Prey {
     }
     this.pos.x += Math.sin(this.yaw) * this.v * dt * tm; this.pos.z += Math.cos(this.yaw) * this.v * dt * tm;
     if (Math.abs(this.pos.x) > TW / 2 - 2 || Math.abs(this.pos.z) > TD / 2 - 2) { this.yaw += Math.PI; this.pos.x = clamp(this.pos.x, -TW/2 + 2, TW/2 - 2); this.pos.z = clamp(this.pos.z, -TD/2 + 2, TD/2 - 2); }
+    for (const o of preyObs) { const dx = this.pos.x - o.x, dz = this.pos.z - o.z, dd = Math.hypot(dx, dz), rr = o.r * 1.1 + .4;
+      if (dd < rr && this.y < o.h) { this.pos.x = o.x + dx / dd * rr; this.pos.z = o.z + dz / dd * rr; this.yaw = Math.atan2(dx, dz) + rand(-1, 1); } }
     this.y += this.vy * dt; this.vy -= 30 * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; if (this.kind === 'cricket' && this.v > this.speed) this.v *= .5; }
     const gy = groundY(this.pos.x, this.pos.z);
     this.mesh.position.set(this.pos.x, gy + .35 + this.y - this.burrowed * 1.3, this.pos.z); this.mesh.rotation.y = this.yaw;
@@ -460,7 +614,8 @@ function isNight() { const h = S.hour % 24; return h < 6 || h >= 19; }
 function setMode(m) { spider.mode = m; spider.modeT = 0; }
 function pickWander() {
   const night = isNight();
-  if (!night && Math.random() < .55) { spider.target = BURROW.clone(); setMode('toBurrow'); return; }
+  const hideP = (night ? .12 : .5) + (S.led ? .25 : 0);
+  if (Math.random() < hideP) { spider.target = BURROW.clone(); setMode('toBurrow'); return; }
   let x, z, ok = false;
   for (let k = 0; k < 20 && !ok; k++) { x = rand(-TW/2 + 5, TW/2 - 5); z = rand(-TD/2 + 5, TD/2 - 5); ok = !obstacles.some(o => Math.hypot(o.x - x, o.z - z) < o.r + 2); }
   spider.target = new THREE.Vector3(x, 0, z); setMode('wander');
@@ -472,6 +627,8 @@ function steer(dt, target, speed) {
   const facing = Math.cos(dy) > .6 ? 1 : .15;
   let v = speed * facing * clamp(d / 3, .2, 1);
   const fwd = new THREE.Vector3(Math.sin(spider.yaw), 0, Math.cos(spider.yaw));
+  const ahead = groundY(spider.pos.x + fwd.x * spider.span * .3, spider.pos.z + fwd.z * spider.span * .3) - groundY(spider.pos.x, spider.pos.z);
+  v *= clamp(1 - ahead / (spider.span * .3) * .6, .4, 1.1);   // climbing a rock is slower than walking on soil
   const nv = fwd.multiplyScalar(v);
   // avoid rocks / dish
   obstacles.forEach(o => { const ox = spider.pos.x - o.x, oz = spider.pos.z - o.z; const od = Math.hypot(ox, oz); if (od < o.r + spider.span * .4) { nv.x += ox / od * speed; nv.z += oz / od * speed; } });
@@ -482,7 +639,7 @@ function tick(dt) {
   const tm = fast ? 6 : 1;
   const hrs = dt * .5 * tm; S.hour += hrs;
   // climate
-  const tTarget = (S.lamp && !isNight() ? 29 : 24) - (isNight() ? 1.5 : 0);
+  const tTarget = (S.lamp ? 28.5 : 24) - (isNight() ? 1.5 : 0) + (S.led ? .5 : 0);
   S.temp = lerp(S.temp, tTarget, clamp(hrs * .15, 0, 1));
   S.hum = lerp(S.hum, 62, clamp(hrs * .03, 0, 1)) - (S.lamp ? hrs * .25 : 0);
   S.hum = clamp(S.hum, 30, 98);
@@ -557,9 +714,15 @@ function tick(dt) {
     r.scale.setScalar(1 + k * 9 * r.userData.s); r.material.opacity = .5 * (1 - k / 1.2); if (k > 1.2) { scene.remove(r); r.material.dispose(); ripples.splice(i, 1); } }
   // day / night lighting
   const night = isNight();
-  lamp.intensity = lerp(lamp.intensity, S.lamp && !night ? 1.6 : night ? 0.05 : .5, clamp(dt * 2, 0, 1));
-  moon.intensity = lerp(moon.intensity, night ? .35 : 0, clamp(dt * 2, 0, 1));
-  hemi.intensity = lerp(hemi.intensity, night ? .12 : .4, clamp(dt * 2, 0, 1));
+  const lk = clamp(dt * 3, 0, 1);
+  lamp.intensity = lerp(lamp.intensity, S.lamp ? (night ? .55 : .9) : 0, lk);
+  led.intensity = lerp(led.intensity, S.led ? 1.7 : 0, lk);
+  moon.intensity = lerp(moon.intensity, night ? .3 : 0, lk);
+  hemi.intensity = lerp(hemi.intensity, night ? .08 : .3, lk);
+  ledBar.material.emissiveIntensity = S.led ? 1 : 0; bulb.material.emissiveIntensity = S.lamp ? 1 : .02;
+  const da = dust.geometry.attributes.position, now = performance.now() * .0003;
+  for (let i = 0; i < dustN; i++) { da.array[i * 3 + 1] += Math.sin(now + i) * dt * .15; da.array[i * 3] += Math.cos(now * .7 + i * 1.3) * dt * .12; }
+  da.needsUpdate = true; dust.material.opacity = .08 + led.intensity * .22;
   if (humWarnT > 0) humWarnT -= hrs;
   if (humWarnT <= 0 && S.hum > 88) { log('ความชื้นสูงเกิน เสี่ยงเชื้อราในตู้ ให้ปิดพ่นน้ำสักพัก', true); humWarnT = 24; }
   if (humWarnT <= 0 && S.temp < 20) { log('อากาศเย็นไป แมงมุมเป็นสัตว์เลือดเย็น จะเคลื่อนไหวช้าลง', true); humWarnT = 24; }
@@ -600,6 +763,8 @@ function feed(kind) {
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
 $('tMist').onclick = () => { S.hum = clamp(S.hum + 14, 0, 98); log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); mistFx(); };
+$('tLed').onclick = e => { S.led = !S.led; e.currentTarget.classList.toggle('on', S.led);
+  log(S.led ? 'เปิดไฟตู้' : 'ปิดไฟตู้'); if (S.led) { log('ทารันทูลาไม่ชอบแสงจ้า เปิดไฟตู้นานๆ มันจะหลบในโพรงบ่อยขึ้น', true); if (spider.mode === 'wander' && Math.random() < .5) { spider.target = BURROW.clone(); setMode('toBurrow'); } } };
 $('tLamp').onclick = e => { S.lamp = !S.lamp; e.currentTarget.classList.toggle('on', S.lamp); log(S.lamp ? 'เปิดไฟอุ่น' : 'ปิดไฟอุ่น'); };
 $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); };
 $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); };
@@ -637,7 +802,8 @@ Object.entries(SPECIES).forEach(([k, v]) => {
 });
 function begin(state, fresh) {
   S = state; $('start').hidden = true; ['hud', 'log', 'tools'].forEach(id => $(id).hidden = false);
-  $('tLamp').classList.toggle('on', S.lamp);
+  if (S.led === undefined) S.led = true;
+  $('tLamp').classList.toggle('on', S.lamp); $('tLed').classList.toggle('on', S.led);
   spider = new Spider(S.sp, S.span); spider.placeFeet(); pickWander();
   if (S.phase === 'molting') { S.phase = 'premolt'; S.phaseT = 29; }
   if (S.phase === 'soft') spider.soft = 1 - S.phaseT / 48;
