@@ -19,7 +19,7 @@ function log(msg, cls) { // stamped with the real clock of the keeper's device
 /* the spider "talks": a speech bubble over it plus a line in the log. Events (pri) may interrupt after 3 s; mood talk waits its turn */
 let sayCD = 6, sayGap = 0, sayBubbleT = 0, chatT = 12; const sayLast = {};
 function say(cat, pri) {
-  const L = VOICE[cat]; if (!L || previewing || sayGap > 0 || (!pri && sayCD > 0)) return false;
+  const L = VOICE[cat]; if (!L || previewing || (!pri && (sayGap > 0 || sayCD > 0))) return false;
   let i = Math.floor(Math.random() * L.length); if (L.length > 1 && i === sayLast[cat]) i = (i + 1) % L.length; sayLast[cat] = i;
   $('say').textContent = L[i]; sayBubbleT = 4.5; sayCD = rand(10, 16); sayGap = 3;
   log(`<i>${S.name}:</i> “${L[i]}”`, 'say');
@@ -126,7 +126,7 @@ class Prey {
       if (this.hop > 0) this.hop -= dt;
       if (this.crouch > 0) { this.crouch -= dt * tm; if (this.crouch <= 0) { this.crouch = 0; this.v = this.jv; this.vy = this.jvy; this.hop = .5; this.kick = .14; } }
       else if (this.t < 0) { this.t = rand(.6, 2.5); if (Math.random() < .5) { this.yaw += rand(-1.5, 1.5); this.jump(this.speed * rand(1.2, 2), rand(5, 9)); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; this.yaw += rand(-1, 1); } }
-      if (threatNear && sp.mode === 'hunt' && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
+      if (threatNear && sp.mode === 'hunt' && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = this.face = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
       // males chirp at night: forewings raised and rubbed together
       if (this.chirp > 0) this.chirp -= dt; else if (isNight() && this.v < .3 && this.y <= 0 && !threatNear && Math.random() < dt * .06) this.chirp = rand(1.2, 3);
     }
@@ -239,7 +239,7 @@ function metab() { return clamp((S.temp - 16) / 10, .25, 1.4); }                
 function isNight() { const h = S.hour % 24; return h < 6 || h >= 19; }
 function daylight() { const h = S.hour % 24, ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }; return ss(5.3, 7, h) * (1 - ss(18.3, 19.8, h)); }
 function setMode(m) {
-  if (spider.prey && spider.prey.held && m !== 'eat') { spider.prey.held = false; spider.prey.y = 0; }   // dropped the meal
+  if (spider.prey && spider.prey.held && m !== 'eat') { spider.prey.held = false; spider.prey.heldT = 0; spider.prey.y = 0; }   // dropped the meal
   spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.best = Infinity;
   if (m === 'idle') nav.idleFor = rand(2.5, 6);
 }
@@ -310,7 +310,7 @@ function tick(dt) {
     S.autoFed = true; say('starving', true); feed(Math.random() < .5 ? 'cricket' : 'dubia', true); }
   if (S.hunger < 60) S.autoFed = false;
   if (!previewing && S.hum < 55 && !S.autoMist) { S.autoMist = true; say('autoMist', true); mist(true); }
-  if (S.hum > 65) S.autoMist = false;
+  if (S.hum > 75) S.autoMist = false;
   const tTarget = (S.lamp ? 28.5 : 24) - (night ? 1.5 : 0) + (S.led ? .5 : 0);
   S.temp = lerp(S.temp, tTarget, clamp(hrs * .15, 0, 1));
   S.hum = clamp(lerp(S.hum, 62, clamp(hrs * .03, 0, 1)) - (S.lamp ? hrs * .25 : 0), 30, 98);
@@ -377,7 +377,7 @@ function tick(dt) {
       p.mesh.position.copy(mouth); p.mesh.rotation.set(.5, sp.yaw + Math.PI / 2, 0);
       if (sp.modeT > 9 / TM) {
         leaveBolus(mouth, p.kind);
-        p.remove(); S.hunger = clamp(S.hunger - p.value * 1.4, 0, 100); S.growth = clamp(S.growth + p.value * (12 / L), 0, 100);
+        p.remove(); S.autoFed = false; S.hunger = clamp(S.hunger - p.value * 1.4, 0, 100); S.growth = clamp(S.growth + p.value * (12 / L), 0, 100);
         log('ย่อยนอกร่างกายเสร็จ เหลือแต่ซาก (น้ำย่อยละลายเนื้อเหยื่อก่อนดูดกิน)', true); say('eat', true); setMode('idle'); save();
       }
       break;
@@ -495,7 +495,7 @@ function feed(kind, auto) {
 }
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
-function mist(auto) { S.hum = clamp(S.hum + 14, 0, 98); mistFx();
+function mist(auto) { if (!auto) S.autoMist = false; S.hum = clamp(S.hum + 14, 0, 98); mistFx();
   if (auto) log(`🤖 พ่นน้ำอัตโนมัติ: ความชื้นต่ำมาก จึงพ่นละอองน้ำให้ 1 ครั้ง`); else { log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); say('misted', true); } }
 $('tMist').onclick = () => mist(false);
 $('tLed').onclick = e => { S.led = !S.led; e.currentTarget.classList.toggle('on', S.led); log(S.led ? 'เปิดไฟตู้' : 'ปิดไฟตู้');
@@ -565,7 +565,7 @@ function loop() {
   tick(dt);
   // foliage is shoved by the spider's body and legs and by prey, then springs back
   const cols = spider && spider.legs[0].J ? spider.colliders([]) : [];
-  prey.forEach(p => { if (!p.eaten && p.burrowed < .5) cols.push(p.mesh.position.x, p.mesh.position.y + .3, p.mesh.position.z, p.kind === 'cricket' ? .5 : .65); });
+  prey.forEach(p => { if (!p.eaten && p.burrowed < .5) cols.push(p.mesh.position.x, p.mesh.position.y + .3, p.mesh.position.z, p.kind === 'cricket' ? .5 : .85); });
   updateFoliage(dt, cols);
   // lighting: room daylight follows the clock; LED bar and heat lamp follow their switches
   const day = daylight(), k = clamp(dt * 3, 0, 1), B = LIGHT_BASE;
