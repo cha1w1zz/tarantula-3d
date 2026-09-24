@@ -480,7 +480,7 @@ function resize() {
   camera.updateProjectionMatrix();
   fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
-  bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .011 : lo ? 0 : .007;   // lens fringe: off on the lowest mode
+  bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .007 : lo ? 0 : .004;   // lens fringe: off on the lowest mode
   setShadowRes(hi ? 2048 : 1024);
   led.castShadow = lamp.castShadow = !lo;           // lowest mode: no shadows at all
   setMeadowDensity(hi ? 1 : lo ? .35 : .6);
@@ -520,15 +520,14 @@ $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
 { const d = document, el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, fsEl = () => d.fullscreenElement || d.webkitFullscreenElement;
   if (!req) $('tFull').hidden = true;
-  const quiet = r => { if (r && r.catch) r.catch(() => {}); };   // browser may refuse fullscreen (no permission): ignore quietly
-  $('tFull').onclick = () => quiet(fsEl() ? (d.exitFullscreen || d.webkitExitFullscreen).call(d) : req.call(el));
+  $('tFull').onclick = () => fsEl() ? (d.exitFullscreen || d.webkitExitFullscreen).call(d) : req.call(el);
   const fsSync = () => { $('tFull').textContent = fsEl() ? '⛶ ออกเต็มจอ' : '⛶ เต็มจอ'; };
   d.addEventListener('fullscreenchange', fsSync); d.addEventListener('webkitfullscreenchange', fsSync);
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
   // screensaver: fullscreen, no UI, slow cinematic orbit around the spider; any tap/key exits
   const saver = (on, full) => { saverOn = on; if (on && cine) setCine(false); d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
-    if (on) { saverT = 0; if (full && !fsEl() && req) quiet(req.call(el)); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
+    if (on) { saverT = 0; if (full && !fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
   $('tSaver').onclick = e => { e.stopPropagation(); saver(true, true); };
   $('tSaverWin').onclick = e => { e.stopPropagation(); saverAt = performance.now(); saver(true, false); };
   const quit = e => { if (saverOn && performance.now() - saverAt > 800) { e.stopPropagation(); e.preventDefault(); saver(false); } };
