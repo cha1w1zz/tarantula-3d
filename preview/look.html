@@ -1,0 +1,194 @@
+<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"><title>บึ้งไทย — ตัวอย่างลุคใหม่</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;height:100%;background:#061210;overflow:hidden;font-family:sans-serif}
+#hud{position:fixed;left:12px;bottom:12px;color:#cfe8dd;font-size:13px;background:#0008;padding:8px 12px;border-radius:8px}</style></head>
+<body><div id="hud">WASD / ลูกศร = เดิน · ลากเมาส์ = หมุนกล้อง · N = กลางวัน/กลางคืน · ไม่กด = บึ้งเดินเล่นเอง</div>
+<script src="../lib/three.min.js"></script><script src="../lib/OrbitControls.js"></script>
+<script src="../lib/CopyShader.js"></script><script src="../lib/LuminosityHighPassShader.js"></script>
+<script src="../lib/EffectComposer.js"></script><script src="../lib/RenderPass.js"></script>
+<script src="../lib/ShaderPass.js"></script><script src="../lib/UnrealBloomPass.js"></script>
+<script>
+// ---------- พื้นฐาน: renderer, ฉาก, หมอก ----------
+const W = innerWidth, H = innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(W, H);
+renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = .85;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const FOG = new THREE.Color('#0d2622'); scene.background = FOG.clone(); scene.fog = new THREE.FogExp2(FOG, .04);
+const camera = new THREE.PerspectiveCamera(45, W / H, .1, 200); camera.position.set(14, 9, 18);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0); controls.enableDamping = true; controls.maxPolarAngle = 1.45; controls.minDistance = 5; controls.maxDistance = 40;
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+// ---------- ไฟ: แสงเย็นจากบน (LED) + ไฟอุ่นจุดเล็ก (lamp) ----------
+const hemi = new THREE.HemisphereLight('#5f9c90', '#2a1a10', .55); scene.add(hemi);
+const key = new THREE.DirectionalLight('#bfe8ff', 1.3); key.position.set(-6, 22, 4); key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024); key.shadow.radius = 4; const sc = key.shadow.camera; sc.left = sc.bottom = -18; sc.right = sc.top = 18; sc.far = 50; key.shadow.bias = -.0008;
+scene.add(key);
+const lamp = new THREE.PointLight('#ff9a4a', 2.4, 22, 2); lamp.position.set(7, 6, -4); scene.add(lamp);
+
+// ---------- ผิวทราย/ดิน: ลายน้ำคลื่นเล็ก ๆ ด้วย normal map จาก canvas ----------
+function canvasTex(s, fn, srgb) { const c = document.createElement('canvas'); c.width = c.height = s; fn(c.getContext('2d'), s); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (srgb) t.encoding = THREE.sRGBEncoding; return t; }
+const soilCol = canvasTex(512, (g, s) => { g.fillStyle = '#3a2a20'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 9000; i++) { const l = rnd(12, 30); g.fillStyle = `hsl(${rnd(18, 34)},${rnd(20, 40)}%,${l}%)`; g.globalAlpha = rnd(.2, .7); g.fillRect(rnd(0, s), rnd(0, s), rnd(1, 3), rnd(1, 3)); } }, true);
+const soilNrm = canvasTex(256, (g, s) => { const im = g.createImageData(s, s);
+  for (let y = 0; y < s; y++) for (let x = 0; x < s; x++) { const d = Math.cos((y + 6 * Math.sin(x * .05)) * .2) + .3 * Math.sin(x * .6 + y * .9);
+    const i = (y * s + x) * 4; im.data[i] = 128 + 30 * Math.sin(x * .6 + y * .9) * .3; im.data[i + 1] = 128 + 60 * d * .5; im.data[i + 2] = 255; im.data[i + 3] = 255; }
+  g.putImageData(im, 0, 0); });
+soilCol.repeat.set(6, 6); soilNrm.repeat.set(10, 10);
+function groundY(x, z) { return .35 * Math.sin(x * .25) * Math.cos(z * .2) + .2 * Math.sin(x * .7 + z * .5); }
+const gGeo = new THREE.PlaneGeometry(60, 60, 120, 120); gGeo.rotateX(-Math.PI / 2);
+const gp = gGeo.attributes.position; for (let i = 0; i < gp.count; i++) gp.setY(i, groundY(gp.getX(i), gp.getZ(i))); gGeo.computeVertexNormals();
+const ground = new THREE.Mesh(gGeo, new THREE.MeshStandardMaterial({ map: soilCol, normalMap: soilNrm, normalScale: new THREE.Vector2(.6, .6), roughness: .95 }));
+ground.receiveShadow = true; scene.add(ground);
+
+// ---------- หิน: icosphere บิดด้วย noise, ด้านบนแบนให้เดินได้ ----------
+const rockMat = new THREE.MeshStandardMaterial({ color: '#3e3b36', roughness: .85, flatShading: true });
+const rocks = [];
+[[5, -3, 2.6, 1.5], [-3, 5, 1.6, 1], [8, 3, 1.2, .8]].forEach(([x, z, r, h]) => {
+  const geo = new THREE.IcosahedronGeometry(r, 2), p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) { const v = new THREE.Vector3().fromBufferAttribute(p, i); const n = 1 + .18 * Math.sin(v.x * 3.1 + v.z * 2.3) * Math.cos(v.y * 2.7);
+    v.multiplyScalar(n); v.y = Math.min(v.y * (h / r), h * .8); p.setXYZ(i, v.x, v.y, v.z); }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, rockMat); m.position.set(x, groundY(x, z) - .1, z); m.castShadow = m.receiveShadow = true; scene.add(m);
+  rocks.push({ x, z, r, h: h * .8 });
+});
+// ความสูงพื้นที่เดินได้ (ดิน หรือ บนหิน)
+function walkY(x, z) { let y = groundY(x, z); for (const k of rocks) { const d = Math.hypot(x - k.x, z - k.z) / k.r; if (d < 1) y = Math.max(y, k.h * Math.sqrt(1 - d * d)); } return y; }
+
+// ---------- ขอนไม้กลวง (ที่ซ่อน) ----------
+const barkTex = canvasTex(256, (g, s) => { g.fillStyle = '#3a2618'; g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 160; i++) { g.strokeStyle = `hsl(25,30%,${rnd(8, 26)}%)`; g.lineWidth = rnd(1, 4); g.beginPath(); const x = rnd(0, s); g.moveTo(x, 0); g.bezierCurveTo(x + rnd(-10, 10), s / 3, x + rnd(-10, 10), s * 2 / 3, x, s); g.stroke(); } }, true);
+barkTex.repeat.set(3, 1);
+const log = new THREE.Group();
+const outer = new THREE.Mesh(new THREE.CylinderGeometry(2, 2.1, 9, 28, 1, true, 0, Math.PI * 1.35), new THREE.MeshStandardMaterial({ map: barkTex, roughness: .9, side: THREE.DoubleSide }));
+outer.rotation.z = Math.PI / 2; outer.rotation.x = -Math.PI * .17; outer.castShadow = outer.receiveShadow = true; log.add(outer);
+const mossMat = new THREE.MeshStandardMaterial({ color: '#335c1c', roughness: 1 });
+for (let i = 0; i < 14; i++) { const m = new THREE.Mesh(new THREE.SphereGeometry(rnd(.3, .7), 10, 8), mossMat); m.scale.y = .4; m.position.set(rnd(-4, 4), 1.95, rnd(-.6, .6)); log.add(m); }
+log.position.set(-5, .3, -4); log.rotation.y = .5; scene.add(log);
+
+// ---------- หญ้า + พืช ใบเอนหลบเมื่อบึ้งเดินผ่าน (ทำใน vertex shader) ----------
+const U = { uTime: { value: 0 }, uPush: { value: new THREE.Vector4(0, 0, 0, 2.2) } };
+function bendMat(color, emissive) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: .7, side: THREE.DoubleSide, emissive: emissive || '#000' });
+  m.onBeforeCompile = sh => { sh.uniforms.uTime = U.uTime; sh.uniforms.uPush = U.uPush;
+    sh.vertexShader = 'attribute vec3 aRoot; attribute float aH; uniform float uTime; uniform vec4 uPush;\n' + sh.vertexShader.replace('#include <begin_vertex>', `
+      vec3 transformed = position; float k = aH * aH;
+      transformed.x += k * .25 * sin(uTime * 1.6 + aRoot.x * .4 + aRoot.z * .3);           // ลม
+      vec2 d = aRoot.xz - uPush.xz; float dist = length(d);
+      float f = (1. - smoothstep(0., uPush.w, dist)) * k;                                  // ใกล้บึ้ง = เอนมาก
+      transformed.xz += normalize(d + 1e-4) * f * 1.3; transformed.y -= f * .6;`); };
+  return m;
+}
+function addBlades(n, area, avoid, color, hMin, hMax, wid) {
+  const pos = [], root = [], hh = [], idx = [];
+  for (let b = 0; b < n; b++) {
+    let x, z; do { x = rnd(-area, area); z = rnd(-area, area); } while (avoid(x, z));
+    const y = groundY(x, z), h = rnd(hMin, hMax), a = rnd(0, 6.28), lean = rnd(-.4, .4), base = pos.length / 3;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    for (let s = 0; s <= 4; s++) { const t = s / 4, w = wid * (1 - t * .9), off = lean * t * t * h;
+      for (const side of [-1, 1]) { pos.push(x + ca * w * side + sa * off, y + t * h, z + sa * w * side - ca * off); root.push(x, y, z); hh.push(t); } }
+    for (let s = 0; s < 4; s++) { const i = base + s * 2; idx.push(i, i + 1, i + 2, i + 1, i + 3, i + 2); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('aRoot', new THREE.Float32BufferAttribute(root, 3)); g.setAttribute('aH', new THREE.Float32BufferAttribute(hh, 1)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, bendMat(color)); m.frustumCulled = false; m.castShadow = true; scene.add(m);
+}
+const blocked = (x, z) => rocks.some(k => Math.hypot(x - k.x, z - k.z) < k.r + .2) || (Math.abs(x + 5) < 5 && Math.abs(z + 4) < 3);
+addBlades(3500, 16, blocked, '#2f5a22', .5, 1.4, .05);                                        // หญ้าเตี้ย
+addBlades(400, 14, (x, z) => blocked(x, z) || Math.hypot(x, z) < 3, '#2f6b3a', 1.5, 3.2, .18); // ใบยาวเข้ม
+addBlades(120, 14, blocked, '#d0402a', 1.2, 2.4, .2);                                          // ใบแดง = สีเด่นตัดพื้นเย็น
+
+// ---------- ลำแสง (god rays) + ฝุ่นลอย ----------
+const rayMat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  uniforms: { uI: { value: .22 }, uTime: U.uTime },
+  vertexShader: 'varying vec2 vU; void main(){ vU = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
+  fragmentShader: 'uniform float uI; uniform float uTime; varying vec2 vU; void main(){ float e = sin(vU.x*3.1416); float f = pow(vU.y,1.5); float fl = .8+.2*sin(uTime*.7+vU.x*9.); gl_FragColor = vec4(vec3(.65,.9,1.)*uI*e*e*f*fl,1.); }' });
+const rays = new THREE.Group();
+for (let i = 0; i < 6; i++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(rnd(.6, 1.2), rnd(2, 3.5), 24, 20, 1, true), rayMat);
+  r.position.set(rnd(-8, 6), 11, rnd(-6, 6)); r.rotation.z = .25; r.rotation.x = rnd(-.1, .1); rays.add(r); }
+scene.add(rays);
+const DN = 700, dPos = new Float32Array(DN * 3); for (let i = 0; i < DN; i++) { dPos[i * 3] = rnd(-18, 18); dPos[i * 3 + 1] = rnd(0, 14); dPos[i * 3 + 2] = rnd(-18, 18); }
+const dGeo = new THREE.BufferGeometry(); dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3));
+const dotTex = canvasTex(32, (g, s) => { const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, '#fff'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, s, s); });
+const dust = new THREE.Points(dGeo, new THREE.PointsMaterial({ size: .12, map: dotTex, transparent: true, opacity: .7, depthWrite: false, blending: THREE.AdditiveBlending, color: '#cfeee6' }));
+scene.add(dust);
+
+// ---------- บึ้งตัวแทน: ลำตัว + ท้อง + 8 ขา (2 ท่อน) + เขี้ยว/ขาหน้า ----------
+const furTex = canvasTex(128, (g, s) => { g.fillStyle = '#1c130e'; g.fillRect(0, 0, s, s); for (let i = 0; i < 1500; i++) { g.strokeStyle = `hsla(${rnd(20, 35)},40%,${rnd(10, 40)}%,.6)`; g.beginPath(); const x = rnd(0, s), y = rnd(0, s); g.moveTo(x, y); g.lineTo(x + rnd(-2, 2), y + rnd(2, 6)); g.stroke(); } }, true);
+const fur = new THREE.MeshStandardMaterial({ map: furTex, roughness: .75, color: '#b89070' });
+const legMat = new THREE.MeshStandardMaterial({ map: furTex, roughness: .7, color: '#8a6a55' });
+const spider = new THREE.Group(); scene.add(spider);
+const body = new THREE.Group(); spider.add(body);
+const ceph = new THREE.Mesh(new THREE.SphereGeometry(.55, 20, 14), fur); ceph.scale.set(1, .5, 1.15); ceph.position.z = .35; body.add(ceph);
+const abd = new THREE.Mesh(new THREE.SphereGeometry(.7, 22, 16), fur); abd.scale.set(1, .85, 1.2); abd.position.set(0, .1, -.75); body.add(abd);
+const stripe = new THREE.Mesh(new THREE.SphereGeometry(.2, 10, 8), new THREE.MeshStandardMaterial({ color: '#e0a060', emissive: '#3a1a05' })); stripe.scale.set(.6, .3, 2); stripe.position.set(0, .66, -.75); body.add(stripe);
+[-1, 1].forEach(s => { const f = new THREE.Mesh(new THREE.ConeGeometry(.08, .3, 8), new THREE.MeshStandardMaterial({ color: '#111', roughness: .3 })); f.position.set(s * .12, -.05, .95); f.rotation.x = Math.PI * .6; body.add(f); });
+const eye = new THREE.Mesh(new THREE.SphereGeometry(.06, 8, 6), new THREE.MeshStandardMaterial({ color: '#000', roughness: .1, metalness: .5 })); eye.position.set(0, .28, .6); body.add(eye);
+body.traverse(o => { if (o.isMesh) o.castShadow = true; });
+// ขา: สะโพก -> เข่า -> ปลาย ใช้ IK 2 ท่อนแบบง่าย
+const legs = [], L1 = 1.1, L2 = 1.3;
+function seg(len, r) { const g = new THREE.CylinderGeometry(r * .75, r, len, 7); g.translate(0, len / 2, 0); g.rotateX(Math.PI / 2); const m = new THREE.Mesh(g, legMat); m.castShadow = true; scene.add(m); return m; }
+for (let i = 0; i < 8; i++) { const side = i < 4 ? -1 : 1, k = i % 4, ang = (-.55 + k * .38) * Math.PI;
+  legs.push({ side, hip: new THREE.Vector3(side * .35, .05, .45 - k * .22), dir: new THREE.Vector3(side * Math.cos(ang * .5 + (k - 1.5) * .0), 0, .9 - k * .6).normalize(),
+    a: seg(L1, .09), b: seg(L2, .07), foot: new THREE.Vector3(), target: new THREE.Vector3(), phase: (k % 2 === 0) === (side < 0) ? 0 : .5, lift: 0 }); }
+const S = { pos: new THREE.Vector3(1, 0, 3), yaw: 0, speed: 0, wander: 0, gait: 0 };
+function worldHip(l) { return l.hip.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), S.yaw).add(spider.position); }
+function restFoot(l) { const d = l.dir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), S.yaw); const p = worldHip(l).addScaledVector(d, 1.9); p.y = walkY(p.x, p.z); return p; }
+function placeLegs() { legs.forEach(l => { l.foot.copy(restFoot(l)); l.from = l.foot.clone(); }); }
+const up = new THREE.Vector3(0, 1, 0);
+function solveLeg(l) {
+  const h = worldHip(l), f = l.foot, d = f.clone().sub(h), dist = Math.min(d.length(), L1 + L2 - .01);
+  const a = Math.acos(THREE.MathUtils.clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1));
+  const dn = d.clone().normalize(), side = new THREE.Vector3().crossVectors(dn, up).normalize(), bendUp = new THREE.Vector3().crossVectors(side, dn).normalize();
+  const knee = h.clone().addScaledVector(dn, Math.cos(a) * L1).addScaledVector(bendUp, Math.sin(a) * L1);
+  l.a.position.copy(h); l.a.lookAt(knee); l.b.position.copy(knee); l.b.lookAt(h.clone().addScaledVector(dn, dist));
+}
+
+// ---------- ควบคุม: คีย์บอร์ด หรือเดินเล่นเอง ----------
+const keys = {}; addEventListener('keydown', e => { keys[e.key.toLowerCase()] = 1; if (e.key.toLowerCase() === 'n') night = !night; }); addEventListener('keyup', e => keys[e.key.toLowerCase()] = 0);
+let night = false, nightK = 0, lastKey = -99, t = 0;
+function tick(dt) {
+  t += dt; U.uTime.value = t;
+  let fwd = (keys.w || keys.arrowup ? 1 : 0) - (keys.s || keys.arrowdown ? 1 : 0), turn = (keys.a || keys.arrowleft ? 1 : 0) - (keys.d || keys.arrowright ? 1 : 0);
+  if (fwd || turn) lastKey = t;
+  if (t - lastKey > 3) { // เดินเล่นแบบหยุด-เดิน
+    S.wander -= dt; if (S.wander < -2) S.wander = rnd(1.5, 4); fwd = S.wander > 0 ? 1 : 0;
+    const home = Math.hypot(S.pos.x, S.pos.z) > 11 ? Math.atan2(-S.pos.x, -S.pos.z) - S.yaw : Math.sin(t * .4) * .8;
+    turn = THREE.MathUtils.clamp(Math.atan2(Math.sin(home), Math.cos(home)), -1, 1) * (fwd ? .8 : 0);
+  }
+  S.speed = THREE.MathUtils.lerp(S.speed, fwd * 2.2, 1 - Math.exp(-dt * 5)); S.yaw += turn * dt * 1.8;
+  S.pos.x += Math.sin(S.yaw) * S.speed * dt; S.pos.z += Math.cos(S.yaw) * S.speed * dt;
+  const avg = legs.reduce((s, l) => s + l.foot.y, 0) / 8, gy = Math.max(walkY(S.pos.x, S.pos.z), avg);
+  S.pos.y = THREE.MathUtils.lerp(S.pos.y, gy + .75, 1 - Math.exp(-dt * 8));
+  spider.position.copy(S.pos); spider.rotation.y = S.yaw;
+  body.position.y = .04 * Math.sin(t * 9) * Math.abs(S.speed) / 2.2; abd.rotation.x = .05 * Math.sin(t * 2);
+  // ก้าวขาแบบสลับ 4 ต่อ 4
+  S.gait += dt * (1.2 + Math.abs(S.speed) * 2.2);
+  legs.forEach(l => { const ph = (S.gait + l.phase) % 1, tgt = restFoot(l);
+    if (ph < .4 && tgt.distanceTo(l.foot) > .35 && !l.step) { l.step = 1; l.from = l.foot.clone(); l.st = 0; }
+    if (l.step) { l.st += dt * 5; const k = Math.min(l.st, 1); l.foot.lerpVectors(l.from, tgt, k); l.foot.y += Math.sin(k * Math.PI) * .45; if (k >= 1) l.step = 0; }
+    solveLeg(l); });
+  U.uPush.value.set(S.pos.x, 0, S.pos.z, 2.2);
+  // ฝุ่นลอยช้า ๆ
+  for (let i = 0; i < DN; i++) { dPos[i * 3 + 1] += dt * .08 * Math.sin(i + t * .3); dPos[i * 3] += dt * .05 * Math.cos(i * 1.3 + t * .2); }
+  dGeo.attributes.position.needsUpdate = true;
+  // กลางวัน/กลางคืน
+  nightK = THREE.MathUtils.lerp(nightK, night ? 1 : 0, 1 - Math.exp(-dt * 1.5));
+  key.intensity = 1.3 * (1 - nightK) + .25 * nightK; key.color.set('#bfe8ff').lerp(new THREE.Color('#6e8cff'), nightK);
+  hemi.intensity = .55 - .35 * nightK; lamp.intensity = 2.4 * (1 - nightK * .7);
+  rayMat.uniforms.uI.value = .22 * (1 - nightK * .75);
+  scene.fog.color.set(FOG).lerp(new THREE.Color('#050b14'), nightK); scene.background.copy(scene.fog.color);
+}
+// ---------- post: bloom เบา ๆ ----------
+const composer = new THREE.EffectComposer(renderer); composer.addPass(new THREE.RenderPass(scene, camera));
+composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(W, H), .45, .5, .92));
+function loop() { composer.render(); }
+spider.position.copy(S.pos); placeLegs();
+let last = performance.now();
+function frame(now) { const dt = Math.min((now - last) / 1000, .05); last = now; tick(dt); controls.target.lerp(S.pos, .03); controls.update(); loop(); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+</script></body></html>
