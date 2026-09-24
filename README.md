@@ -14,3 +14,16 @@
 - ขนแมงมุม (setae) หลายพันเส้น ชี้ไปทางปลายขา/ด้านหลัง
 - ไฟตู้ (LED) แยกจากไฟอุ่น: เปิดไฟจ้า แมงมุมจะหลบในโพรงบ่อยขึ้น
 - มอส เฟิร์น หญ้า ผนังหลังเปลือกไม้ก๊อก ฝุ่นลอยในแสง
+
+## เวอร์ชัน 3 (ภาพระดับสูง)
+- ไฟล์: `js/world.js` (ฉาก แสง ลายผิว), `js/spider.js` (โมเดล ขน แอนิเมชัน), `js/game.js` (ระบบเกม เอฟเฟกต์ภาพ), `js/facts.js` (ข้อมูลวิทยาศาสตร์)
+- เอฟเฟกต์ภาพ: ชัดตื้นแบบมาโคร, bloom, ปรับสีภาพ, ปุ่มสลับคุณภาพภาพ
+- แมงมุม: ขนนุ่มหลายหมื่นเส้นที่ไหวได้, ขา 4 ท่อน, ก้าวเป็นคลื่นจากขาหลังไปหน้า, ท้องแกว่งตามแรงเหวี่ยง
+- ขอนไม้กลวงจริง (เปลือก เนื้อไม้ วงปี), มอส เฟิร์น ใบไม้แห้ง กรวด กิ่งไม้
+- ชื่อวิทยาศาสตร์ปรับตาม World Spider Catalog 2026: *Melopoeus minax*, *Melopoeus lividus* (เดิม Cyriopagopus)
+
+### แหล่งอ้างอิงหลัก
+- World Spider Catalog: https://wsc.nmbe.ch/species/37304/Chilobrachys_huahini
+- Hsiung et al. 2015 (สีฟ้าเชิงโครงสร้าง): https://www.science.org/doi/10.1126/sciadv.1500709
+- การเดินและขาไฮดรอลิก: https://journals.biologists.com/jeb/article/218/7/977/14524
+- การย่อยนอกร่างกาย: https://www.burkemuseum.org/collections-and-research/biology/arachnology-and-entomology/spider-myths/myth-spiders-only-suck
