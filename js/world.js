@@ -137,8 +137,8 @@ const ROCK = pbr(512, 512, hsl(30, 7, 40), '#808080', (ga, gh, w, h) => {
     ga.strokeStyle = `rgba(30,24,18,${rand(.04, .1)})`; ga.lineWidth = rand(2, 7); for (const ox of [-w, 0, w]) for (const oy of [-h, 0]) { ga.beginPath(); ga.moveTo(x + ox, y0 + oy); ga.lineTo(x + ox + rand(-3, 3), y0 + oy + l); ga.stroke(); } }
   for (let i = 0; i < 14; i++) { let x = Math.random() * w, y = Math.random() * h, an = rand(0, 6.3);                   // hairline fractures
     const pts = [[x, y]]; for (let k = 0; k < 12; k++) { an += rand(-.5, .5); x += Math.cos(an) * 8; y += Math.sin(an) * 8; pts.push([x, y]); }
-    [[ga, 'rgba(18,14,10,.5)'], [gh, 'rgba(0,0,0,.9)']].forEach(([g, s]) => { g.strokeStyle = s; g.lineWidth = rand(.7, 1.4);
-      for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { g.beginPath(); pts.forEach(([px, py], j) => j ? g.lineTo(px + ox, py + oy) : g.moveTo(px + ox, py + oy)); g.stroke(); } }); }
+    [[ga, 'rgba(30,24,18,.16)'], [gh, 'rgba(0,0,0,.35)']].forEach(([g, s]) => { g.strokeStyle = s; g.lineWidth = rand(.7, 1.4); g.filter = 'blur(.6px)';
+      for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) { g.beginPath(); pts.forEach(([px, py], j) => j ? g.lineTo(px + ox, py + oy) : g.moveTo(px + ox, py + oy)); g.stroke(); } g.filter = 'none'; }); }
 }, 3.4);
 
 /* bark: vertical plates split by deep fissures, lichen and a mossy crown */
@@ -414,7 +414,7 @@ ROCKS.forEach(k => {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ny = nrm.getY(i), above = y - soil[i];
     const cav = ((sum[i * 3] / cnt[i] - x) * nrm.getX(i) + (sum[i * 3 + 1] / cnt[i] - y) * ny + (sum[i * 3 + 2] / cnt[i] - z) * nrm.getZ(i)) / (dist[i] / cnt[i]);
     c.copy(base).multiplyScalar(.86 + fbm(x * .35, y * .35 + k.s, z * .35, 2) * .4);
-    c.multiplyScalar(clamp(1 - cav * 5, .5, 1.18) * (1 - crackA[i] * .6));
+    c.multiplyScalar(clamp(1 - cav * 5, .5, 1.18) * (1 - crackA[i] * .2));   // crack = soft groove, depth comes from shading not a dark line
     const m = sstep(.55, .85, ny) * sstep(-.05, .22, fbm(x * .45 + 9, y * .45, z * .45, 3)) * sstep(.3, 1.2, above);
     c.lerp(moss, m * .85);
     c.lerp(lichen, sstep(.26, .38, fbm(x * .8 + 3, y * .8, z * .8 + k.s, 2)) * (1 - m) * .45);
