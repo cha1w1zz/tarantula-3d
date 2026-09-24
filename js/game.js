@@ -3,6 +3,7 @@
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
 let haze = 0, cine = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
+if (typeof CITY !== 'undefined') cityInside = CITY.inside;    // grass, prey and wander spots stay out of the buildings
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
@@ -643,6 +644,7 @@ function loop() {
     sun.position.set(-Math.cos(a) * 150, 15 + up * 140, 85);
     sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up); }
   scene.background.copy(BG_NIGHT).lerp(BG_DAY, day); scene.fog.color.copy(scene.background);
+  if (typeof CITY !== 'undefined') CITY.update(dt, 1 - day);   // window glow + neon flicker
   grade.uniforms.uNight.value = (1 - day) * (1 - .7 * ledK);
   ledBar.userData.strip.material.color.setRGB(3, 3.05, 3.2).multiplyScalar(ledK + .02);
   bulb.material.color.setRGB(4, 1.9, .7).multiplyScalar(lampK + .01);

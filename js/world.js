@@ -547,7 +547,8 @@ const inTank = (x, z, m) => Math.abs(x) < TW / 2 - (m || 1) && Math.abs(z) < TD 
 const underLog = (x, z) => { const rel = new V3(x - LOG.c.x, 0, z - LOG.c.z), al = rel.dot(LOG.a); return Math.abs(al) < LOG.len / 2 + 1 && Math.abs(rel.x * -LOG.a.z + rel.z * LOG.a.x) < LOG.R + 1.2; };
 // true when (x, z) or anything within `pad` of it is up on a rock
 const onRock = (x, z, pad) => { pad = pad || 0; return [[0, 0], [pad, 0], [-pad, 0], [0, pad], [0, -pad]].some(([dx, dz]) => groundY(x + dx, z + dz) > soilY(x + dx, z + dz) + .08); };
-const clearSpot = (x, z) => inTank(x, z) && !underLog(x, z) && Math.hypot(x - LOG_ENTRY.x, z - LOG_ENTRY.z) > 4 && Math.hypot(x - dishPos.x, z - dishPos.z) > 5.2;
+let cityInside = null;                                          // set by game.js from city.js: (x, z, pad) → inside a building
+const clearSpot = (x, z) => inTank(x, z) && !(cityInside && cityInside(x, z, .5)) && !underLog(x, z) && Math.hypot(x - LOG_ENTRY.x, z - LOG_ENTRY.z) > 4 && Math.hypot(x - dishPos.x, z - dishPos.z) > 5.2;
 
 // cushion moss: textured, lumpy base that blends into the soil + a few alpha-tested shells for a fuzzy close-up silhouette
 const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
