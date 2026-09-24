@@ -342,20 +342,22 @@ const STONE = (() => {
 // กำแพงหลัง: เปลือกไม้ก๊อกจริง = ผิวขรุขระเป็นปุ่มนูน มีร่องกว้างก้นมนตามแนวตั้ง, สันสว่างอมเทา, ร่องสีน้ำตาลแดงเข้ม, รูพรุนนุ่ม ๆ
 // ทำจาก noise ล้วน (ไม่วาดเส้น) ทั้งสีและความสูง → ไม่มีเส้นขอบดำแบบการ์ตูน
 const CORKWALL = (() => {
-  const wA = tileFbm(3, 3), wB = tileFbm(3, 3), furrow = tileFbm(3, 4), lump = tileFbm(5, 4), det = tileFbm(24, 3), col = tileFbm(4, 3), lich = tileFbm(6, 3), pore = tileWorley(56, 56, 1);
+  const wA = tileFbm(3, 3), wB = tileFbm(3, 3), furrow = tileFbm(3, 4), furrow2 = tileFbm(6, 3), lump = tileFbm(5, 4), det = tileFbm(24, 3), grit = tileFbm(96, 2),
+    col = tileFbm(4, 3), lich = tileFbm(6, 3), pore = tileWorley(36, 72, 2);          // sy = 2 → รูพรุนเป็นขีดสั้นแนวนอน (แบบช่องอากาศบนเปลือกไม้)
   const deep = [40, 25, 17], mid = [82, 60, 43], top = [120, 98, 78], grey = [116, 108, 98], lichen = [104, 112, 94];
   return pixTex(1024, 1024, (u, v) => {
-    const qu = u + wA(u, v) * .07, qv = v + wB(u, v) * .1, d = det(u, v), l = lump(u, v);
-    const fr = sstep(0, .4, Math.abs(furrow(qu * 3, qv) + d * .04));                    // ร่องเปลือก: 0 ก้นร่อง (กว้าง มน) → 1 บนแผ่น, ยืดตามแนวตั้ง
-    const hgt = clamp(fr * .62 + l * .35 + .22 + d * .14, 0, 1);                        // ความสูงรวม: ร่อง + ปุ่มนูน + ผิวหยาบ
+    const qu = u + wA(u, v) * .07, qv = v + wB(u, v) * .1, d = det(u, v), g = grit(u, v), l = lump(u, v);
+    const fr = sstep(0, .4, Math.abs(furrow(qu * 2, qv) + d * .05));                    // ร่องใหญ่: 0 ก้นร่อง (กว้าง มน) → 1 บนแผ่น, ยืดตามแนวตั้งเล็กน้อย
+    const fr2 = sstep(0, .25, Math.abs(furrow2(qu * 2, qv) + g * .05));                // ร่องย่อยตื้น ๆ แบ่งแผ่นเป็นก้อน
+    const hgt = clamp(fr * .5 + fr2 * .14 + l * .32 + .2 + d * .14 + g * .1, 0, 1);    // ความสูงรวม: ร่อง + ปุ่มนูน + ผิวร่วนหยาบ
     const [p1, , pid] = pore(u + d * .006, v);
-    const pr = (pid * 13 % 10) < 4 ? (1 - sstep(.04, .2, p1)) * fr : 0;              // รูพรุน/ช่องอากาศ บางช่องเท่านั้น ขอบนุ่ม
+    const pr = (pid * 13 % 10) < 3 ? (1 - sstep(.03, .04 + (pid % 7) * .025, p1)) * fr : 0;   // รูพรุน: บางช่อง ขนาดไม่เท่ากัน ขอบนุ่ม
     let c = mix3(deep, mid, sstep(.05, .55, hgt));
     c = mix3(c, top, sstep(.5, .95, hgt));                                               // สันนูนสว่าง
     c = mix3(c, grey, clamp(col(u, v) * 1.5 + .15, 0, .45) * sstep(.45, .85, hgt));      // สันที่แห้งตากลมออกเทา
     const L = clamp((lich(u, v) - .15) * 4, 0, 1) * sstep(.6, .9, hgt); c = mix3(c, lichen, L * .45);
-    c = c.map(x => x * (.9 + d * .22) * (1 - pr * .3));                                // ผิวหยาบละเอียด + รูพรุน
-    return [c[0], c[1], c[2], hgt - pr * .12];
+    c = c.map(x => x * (.9 + d * .2 + g * .25) * (1 - pr * .3));                       // ผิวหยาบละเอียด + รูพรุน
+    return [c[0], c[1], c[2], hgt - pr * .1];
   }, 3.5);
 })();
 {
