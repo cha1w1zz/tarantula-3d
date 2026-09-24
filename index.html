@@ -53,6 +53,7 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
 body.noui .hud,body.noui .log,body.noui .tools,body.noui .say{display:none!important}
 .uiBack{display:none;position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:4;opacity:.55}
 body.noui .uiBack{display:block}
+body.saver .uiBack{display:none}body.saver{cursor:none}
 .overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(10,8,6,.72);padding:16px;z-index:5}
 .card{background:#17130f;border:1px solid var(--line);border-radius:14px;padding:22px;max-width:440px;width:100%;display:grid;gap:14px}
 .card h2{margin:0;font-size:24px;text-wrap:balance}
@@ -92,6 +93,7 @@ body.noui .uiBack{display:block}
   <button class="btn" id="tFast">⏩ เร่งเวลา</button>
   <button class="btn" id="tQual">✨ ภาพ: สูง</button>
   <button class="btn" id="tFull">⛶ เต็มจอ</button>
+  <button class="btn" id="tSaver">🎬 พักจอ</button>
   <button class="btn" id="tHide">🙈 ซ่อน UI</button>
 </div>
 <button class="btn uiBack" id="uiBack">👁 แสดง UI</button>

@@ -2,6 +2,7 @@
 /* =====================================================================
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
+let saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
@@ -520,6 +521,15 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   d.addEventListener('fullscreenchange', fsSync); d.addEventListener('webkitfullscreenchange', fsSync);
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
+  // screensaver: fullscreen, no UI, slow cinematic orbit around the spider; any tap/key exits
+  const saver = on => { saverOn = on; d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
+    if (on) { saverT = 0; if (!fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
+  $('tSaver').onclick = e => { e.stopPropagation(); saver(true); };
+  const quit = e => { if (saverOn && performance.now() - saverAt > 800) { e.stopPropagation(); e.preventDefault(); saver(false); } };
+  let saverAt = 0; $('tSaver').addEventListener('click', () => saverAt = performance.now());
+  addEventListener('pointerdown', quit, true); addEventListener('keydown', quit, true);
+  const fsOff = () => { if (saverOn && !fsEl() && performance.now() - saverAt > 1500) saver(false); };
+  d.addEventListener('fullscreenchange', fsOff); d.addEventListener('webkitfullscreenchange', fsOff);
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
 $('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
@@ -615,6 +625,12 @@ function loop() {
   da.needsUpdate = true; dust.material.opacity = .02 + ledK * .12 + lampK * .04;
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
   if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
+  if (saverOn && spider) { // new shot every ~14 s: angle, height and distance drift smoothly while the camera circles
+    saverT -= dt; if (saverT <= 0) { saverT = rand(10, 18); const s = spider.span || 10; saverShot = { el: rand(.18, .75), r: s * rand(1.3, 3.2) + 6, spin: rand(.03, .08) * (Math.random() < .5 ? -1 : 1) }; }
+    const off = camPrev.copy(camera.position).sub(controls.target), r0 = off.length();
+    let az = Math.atan2(off.x, off.z) + saverShot.spin * dt, el = Math.asin(clamp(off.y / r0, -1, 1));
+    const k = clamp(dt * .25, 0, 1); el = lerp(el, saverShot.el, k); const r = lerp(r0, saverShot.r, k);
+    camera.position.set(controls.target.x + Math.sin(az) * Math.cos(el) * r, controls.target.y + Math.sin(el) * r, controls.target.z + Math.cos(az) * Math.cos(el) * r); }
   controls.update();
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
