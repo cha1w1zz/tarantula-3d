@@ -300,3 +300,64 @@ lookShader(rockMat, 'rockdetail', sh => {
       diffuseColor.rgb *= mix(.5, 1.0, smoothstep(-.35, .45, triN.y));                      // ใต้ท้องหินทึบ ช่วยให้หินนั่งบนดิน
       diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.85, 1.02, .95), smoothstep(.6, .95, triN.y)); }`);   // ด้านบนอมเขียวเทานิด ๆ
 });
+
+// ---------- 6. ผิวใหม่: หินจริง + กำแพงเปลือกไม้ก๊อก (วาดครั้งเดียวตอนโหลด, รูปทรงเหมือนเดิม) ----------
+// เซลล์ Worley แบบต่อลายไร้รอยต่อ: คืน [ระยะใกล้สุด, ระยะที่สอง, รหัสเซลล์]  sy < 1 = เซลล์ยืดตามแนวตั้ง
+function tileWorley(nx, ny, sy) {
+  const P = new Float32Array(nx * ny * 2); for (let i = 0; i < P.length; i++) P[i] = LR();
+  return (u, v) => { const x = u * nx, y = v * ny, xi = Math.floor(x), yi = Math.floor(y); let f1 = 9, f2 = 9, id = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const cx = xi + i, cy = yi + j, k = ((((cy % ny) + ny) % ny) * nx + (((cx % nx) + nx) % nx)) * 2;
+      const dx = cx + P[k] - x, dy = (cy + P[k + 1] - y) * sy, d = Math.sqrt(dx * dx + dy * dy);
+      if (d < f1) { f2 = f1; f1 = d; id = k; } else if (d < f2) f2 = d; }
+    return [f1, f2, id]; };
+}
+function pixTex(w, h, fn, nStrength, post) {   // fn(u, v) → [r, g, b, height 0..1]
+  const a = cnv(w, h), hh = cnv(w, h), ga = a.getContext('2d'), gh = hh.getContext('2d'), A = ga.createImageData(w, h), H = gh.createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y * w + x) * 4, c = fn(x / w, y / h);
+    A.data[o] = c[0]; A.data[o + 1] = c[1]; A.data[o + 2] = c[2]; A.data[o + 3] = 255; H.data[o] = H.data[o + 1] = H.data[o + 2] = clamp(c[3], 0, 1) * 255; H.data[o + 3] = 255; }
+  ga.putImageData(A, 0, 0); gh.putImageData(H, 0, 0); if (post) post(ga, gh, w, h);
+  return { map: mkTex(a, true), normalMap: mkTex(heightToNormal(hh, nStrength), false) };
+}
+const mix3 = (p, q, t) => [lerp(p[0], q[0], t), lerp(p[1], q[1], t), lerp(p[2], q[2], t)];
+// หิน: เนื้อหินเทาอมเย็น สีไม่เรียบ (ก้อนใหญ่-กลาง-เล็ก), เกล็ดแร่ละเอียด, หลุมสึก, ร่องมืด, คราบไลเคนเทาเขียวจาง ๆ เป็นหย่อม
+const STONE = (() => {
+  const big = tileFbm(3, 4), mid = tileFbm(9, 3), fine = tileFbm(40, 2), tint = tileFbm(2, 3), lich = tileFbm(6, 3), fmask = tileFbm(3, 3), cell = tileWorley(6, 6, 1), pits = tileWorley(30, 30, 1);
+  const dark = [44, 44, 43], light = [132, 128, 120], warm = [112, 96, 80], lichen = [150, 160, 142];
+  return pixTex(512, 512, (u, v) => {
+    const b = big(u, v), m = mid(u, v), f = fine(u, v), [f1, f2] = cell(u + m * .04, v + b * .04), edge = f2 - f1, [p1] = pits(u, v);
+    const crack = (1 - sstep(0, .035, edge)) * sstep(.05, .25, fmask(u, v));          // รอยแตกเป็นเส้น ๆ เฉพาะบางช่วง ไม่เป็นตาข่ายทั้งก้อน
+    let t = clamp(.5 + b * .9 + m * .5 + f * .35, 0, 1), c = mix3(dark, light, t);
+    c = mix3(c, warm, clamp(tint(u, v) * 2 + .1, 0, .45));                          // คราบสนิมอุ่นจาง ๆ
+    const sp = Math.random(); if (sp < .07) c = mix3(c, [200, 196, 186], .45); else if (sp < .14) c = mix3(c, [20, 20, 20], .5);   // เกล็ดแร่
+    const L = clamp((lich(u, v) - .1) * 5, 0, 1) * sstep(.3, .6, t); c = mix3(c, lichen, L * .6);   // ไลเคน
+    const pit = p1 < .12 && LR() < .5 ? (.12 - p1) * 3 * sstep(.1, .3, -f) : 0;   // หลุมสึกเล็ก ๆ
+    c = c.map(x => x * (1 - crack * .6) * (1 - pit * .6));
+    return [c[0], c[1], c[2], .5 + b * .45 + m * .35 + f * .25 - crack * .25 - pit * .4 + L * .05];
+  }, 4.5);
+})();
+// กำแพงหลัง: เปลือกไม้ก๊อก แผ่นเปลือกนูนมนยาวตามแนวตั้ง คั่นด้วยร่องลึกมืด, ผิวแผ่นมีรูพรุน, ไลเคนเทาเขียวบนสัน
+const CORKWALL = (() => {
+  const warp = tileFbm(4, 3), warp2 = tileFbm(4, 3), det = tileFbm(24, 3), col = tileFbm(5, 3), lich = tileFbm(7, 3), cell = tileWorley(7, 3, .5), sub = tileWorley(16, 8, .6), streak = tileFbm(12, 2);
+  const deep = [10, 8, 6], side = [40, 30, 23], top = [78, 64, 53], grey = [84, 80, 74], lichen = [88, 98, 86];
+  return pixTex(1024, 1024, (u, v) => {
+    const wu = u + warp(u, v) * .09 + warp2(u * 2, v) * .03, wv = v + warp2(u, v) * .12, [f1, f2] = cell(wu, wv), [s1, s2] = sub(wu, wv), e = f2 - f1, d = det(u, v);
+    const plate = Math.pow(sstep(0, .3, e + d * .06), .6) * lerp(.72, 1, sstep(0, .12, s2 - s1));   // ร่องใหญ่ + ร่องย่อยตื้น ๆ                            // 0 = ก้นร่อง → 1 = สันแผ่นเปลือก
+    let c = plate < .5 ? mix3(deep, side, plate * 2) : mix3(side, top, (plate - .5) * 2);
+    c = mix3(c, grey, clamp(col(u, v) * 1.6 + .2, 0, .5) * plate);                    // แผ่นที่แห้งออกเทา
+    const pore = 1 - sstep(.2, .45, det(u * 3, v * 3)) * .35;                           // รูพรุนของก๊อก (นุ่ม ๆ)
+    const L = clamp((lich(u, v) - .12) * 4, 0, 1) * sstep(.7, .95, plate); c = mix3(c, lichen, L * .55);
+    c = c.map(x => x * pore * (.88 + d * .3) * (.85 + streak(u, v * .25) * .5));   // ริ้วตามแนวตั้ง
+    return [c[0], c[1], c[2], plate * .8 + d * .15 - (1 - pore) * .2];
+  }, 5);
+})();
+{
+  // สลับผิวหิน (เฉพาะก้อนหินที่เดินได้; จานน้ำและกรวดยังใช้ของเดิม)
+  const prev = rockMat.onBeforeCompile;
+  rockMat.onBeforeCompile = (sh, r) => { prev(sh, r); sh.uniforms.tTriA.value = STONE.map; sh.uniforms.tTriN.value = STONE.normalMap; };
+  rockMat.needsUpdate = true;
+  // สลับผิวกำแพงหลัง: ขนาดลายเท่ากันทั้งแนวนอนและแนวตั้ง (1 ลาย ≈ 22 หน่วย) และหรี่ลงให้ฉากหลังถอยไป
+  scene.children.forEach(o => { if (o.isMesh && o.material.map === CORK.map) {
+    CORKWALL.map.repeat.set(TW / 22, (TH + 2) / 22); CORKWALL.normalMap.repeat.copy(CORKWALL.map.repeat);
+    Object.assign(o.material, { map: CORKWALL.map, normalMap: CORKWALL.normalMap, roughness: .95 }); o.material.color.setScalar(.72); o.material.normalScale.set(1.6, 1.6); o.material.needsUpdate = true; } });
+}
