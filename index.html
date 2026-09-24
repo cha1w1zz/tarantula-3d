@@ -15,42 +15,62 @@ body{font:15px/1.5 "Sarabun",system-ui,sans-serif}
 canvas#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
 h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
 .num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
-.hud{position:fixed;left:16px;top:calc(16px + env(safe-area-inset-top,0px));width:min(300px,calc(100% - 32px));
-  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;backdrop-filter:blur(6px);display:grid;gap:8px}
-.hud h1{margin:0;font-size:20px;font-weight:600;line-height:1.2}
-.hud .sci{color:var(--mute);font-style:italic;font-size:13px}
-.row{display:grid;grid-template-columns:96px 1fr 84px;gap:8px;align-items:center;font-size:13px}
-.bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
-.bar i{display:block;height:100%;background:var(--amber);transition:width .4s}
-.bar.ok i{background:var(--moss)} .bar.bad i{background:var(--warn)}
-.state{display:inline-block;padding:2px 10px;border-radius:99px;background:rgba(224,164,88,.15);color:var(--amber);font-size:13px;justify-self:start}
+/* ---------- UI: กระจกมืดเบลอ + สีเน้นสีเดียว (อำพัน) ---------- */
+:root{--glass:rgba(18,16,14,.55);--glassHi:rgba(28,24,20,.72);--edge:rgba(255,255,255,.09);--acc:#e8ae62}
+.glass{background:var(--glass);border:1px solid var(--edge);backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.hud{position:fixed;left:14px;top:calc(14px + env(safe-area-inset-top,0px));width:min(250px,calc(100% - 28px));border-radius:14px;padding:10px 12px 9px;display:grid;gap:7px;transition:opacity .6s}
+.hTop{display:flex;align-items:center;gap:8px;min-width:0}
+.hud h1{margin:0;font-size:17px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.state{flex:0 0 auto;padding:1px 9px;border-radius:99px;background:rgba(232,174,98,.14);color:var(--acc);font-size:12px;max-width:62%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .state.warn{background:rgba(226,112,79,.18);color:var(--warn)}
-.tools{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));
-  display:flex;flex-wrap:wrap;justify-content:center;gap:8px;width:calc(100% - 32px);max-width:760px}
-.btn{appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;
-  padding:9px 14px;font-size:14px;cursor:pointer;backdrop-filter:blur(6px)}
-.btn:hover{border-color:var(--amber)} .btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-.btn.on{background:rgba(224,164,88,.25);border-color:var(--amber)}
+.meters{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px}
+.m{display:grid;grid-template-columns:16px 1fr auto;gap:6px;align-items:center;font-size:11px;color:var(--mute)}
+.m>span{font-size:12px;line-height:1;text-align:center}
+.bar{height:3px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);transition:width .4s}
+.bar.ok i{background:#a8b96e} .bar.bad i{background:var(--warn)}
+.sub{font-size:11px;color:var(--mute);line-height:1.35;border-top:1px solid var(--edge);padding-top:6px;display:flex;flex-wrap:wrap;gap:0 8px}
+.sub .sci{font-style:italic;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2;
+  display:flex;align-items:center;gap:6px;padding:6px;border-radius:22px;transition:opacity .6s}
+.btn{appearance:none;border:1px solid var(--edge);background:var(--glassHi);color:var(--text);border-radius:10px;padding:9px 14px;font-size:14px;cursor:pointer}
+.btn:hover{border-color:rgba(232,174,98,.6)} .btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.btn.on{background:rgba(232,174,98,.2);border-color:rgba(232,174,98,.7)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
-.log{position:fixed;right:16px;top:calc(16px + env(safe-area-inset-top,0px));width:min(320px,calc(100% - 32px));max-height:40vh;overflow:auto;
-  background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:13px;display:grid;gap:6px}
-.log h2{margin:0;font-size:14px;color:var(--amber);font-weight:600;letter-spacing:.03em}
+.pill{display:grid;justify-items:center;gap:1px;min-width:62px;padding:6px 10px 5px;border-radius:16px;background:transparent;border-color:transparent;font-size:20px;line-height:1.1}
+.pill small{font:500 10.5px/1.2 "Sarabun",sans-serif;color:var(--mute)} .pill.on small{color:var(--acc)}
+.pill:hover{background:rgba(255,255,255,.06);border-color:transparent} .pill:active{transform:scale(.94)}
+.ico{position:relative;width:40px;height:40px;padding:0;border-radius:50%;background:transparent;border-color:transparent;font-size:18px}
+.ico:hover{background:rgba(255,255,255,.06);border-color:transparent}
+.sep{width:1px;height:28px;background:var(--edge);margin:0 2px}
+.badge{position:absolute;top:2px;right:0;min-width:16px;height:16px;padding:0 4px;box-sizing:border-box;border-radius:8px;background:var(--acc);color:#1a120a;font:600 10px/16px "IBM Plex Mono",monospace}
+.drawer,.log{position:fixed;right:max(14px,calc(50% - 300px));bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:2;width:min(340px,calc(100% - 28px));border-radius:16px;
+  display:none;transition:opacity .6s}
+.drawer{padding:12px;gap:10px}
+body.setOpen .drawer,body.logOpen .log{display:grid}
+.drawer h2,.log h2{margin:0;font-size:13px;color:var(--acc);font-weight:600;letter-spacing:.03em}
+.dGroup{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.dGroup>b{grid-column:1/-1;font-size:11px;font-weight:600;color:var(--mute)}
+.drawer .btn{padding:7px 10px;font-size:13px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log{max-height:44vh;overflow:auto;padding:10px 14px;font-size:13px;gap:6px}
 .log p{margin:0;color:var(--mute)} .log p b{color:var(--text);font-weight:600}
 .log p.sci{color:var(--blue)}
-.log p.say{color:#f1dcb4} .log p.say i{color:var(--amber);font-style:normal;font-weight:600}
+.log p.say{color:#f1dcb4} .log p.say i{color:var(--acc);font-style:normal;font-weight:600}
 .say{position:fixed;left:0;top:0;z-index:3;max-width:min(240px,70vw);padding:7px 12px;border-radius:12px;background:rgba(250,243,228,.95);color:#1d140b;
   font:600 13px/1.45 "Sarabun",sans-serif;pointer-events:none;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .3s;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .say::after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:rgba(250,243,228,.95)}
 .say.on{opacity:1}
+/* ไม่ขยับเมาส์/แตะจอ ~5 วิ → UI จางลง ให้ดูตู้เต็ม ๆ */
+body.idle .hud,body.idle .tools{opacity:.14}
 @media (max-width:700px){
-  .tools{flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;padding-bottom:2px}
-  .tools::-webkit-scrollbar{display:none}
-  .tools .btn{flex:0 0 auto;white-space:nowrap;padding:8px 11px;font-size:13px;scroll-snap-align:start}
-  .log{top:auto;bottom:calc(66px + env(safe-area-inset-bottom,0px));max-height:20vh;padding:8px 12px}
-  .hud{padding:8px 11px;gap:5px}.hud h1{font-size:17px}
-  .row{grid-template-columns:84px 1fr 74px;font-size:12px}
+  .hud{left:10px;top:calc(10px + env(safe-area-inset-top,0px));width:min(230px,calc(100% - 20px));padding:8px 10px 7px;gap:6px}.hud h1{font-size:15px}
+  .tools{bottom:calc(10px + env(safe-area-inset-bottom,0px));gap:2px;padding:4px;max-width:calc(100% - 16px)}
+  .pill{min-width:52px;padding:5px 6px 4px;font-size:19px} .pill small{font-size:10px}
+  .ico{width:36px;height:36px;font-size:16px} .sep{margin:0}
+  .drawer,.log{right:8px;left:8px;width:auto;bottom:calc(74px + env(safe-area-inset-bottom,0px))}
+  .log{max-height:38vh}
 }
-body.noui .hud,body.noui .log,body.noui .tools,body.noui .say{display:none!important}
+body.noui .hud,body.noui .log,body.noui .tools,body.noui .drawer,body.noui .say{display:none!important}
 .uiBack{display:none;position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:4;opacity:.55}
 body.noui .uiBack{display:block}
 body.saver .uiBack{display:none}body.saver{cursor:none}
@@ -68,36 +88,49 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
 <canvas id="c"></canvas>
 
 
-<div class="hud" id="hud" hidden>
-  <div><h1 id="hName">-</h1><div class="sci" id="hSp">-</div></div>
-  <span class="state" id="hState">สำรวจ</span>
-  <div class="row"><span>ความหิว</span><div class="bar" id="bHunger"><i></i></div><span class="num" id="vHunger">0%</span></div>
-  <div class="row"><span>อุณหภูมิ</span><div class="bar" id="bTemp"><i></i></div><span class="num" id="vTemp">0°C</span></div>
-  <div class="row"><span>ความชื้น</span><div class="bar" id="bHum"><i></i></div><span class="num" id="vHum">0%</span></div>
-  <div class="row"><span>พร้อมลอกคราบ</span><div class="bar" id="bGrow"><i></i></div><span class="num" id="vGrow">0%</span></div>
-  <div class="row"><span>ขนาดขา</span><span class="num" id="vSpan">-</span><span class="num" id="vMolt">-</span></div>
-  <div class="row"><span>เวลา</span><span class="num" id="vTime">-</span><span id="vDay"></span></div>
+<div class="hud glass" id="hud" hidden>
+  <div class="hTop"><h1 id="hName">-</h1><span class="state" id="hState">สำรวจ</span></div>
+  <div class="meters">
+    <div class="m" title="ความหิว"><span>🍽</span><div class="bar" id="bHunger"><i></i></div><span class="num" id="vHunger">0%</span></div>
+    <div class="m" title="อุณหภูมิ"><span>🌡</span><div class="bar" id="bTemp"><i></i></div><span class="num" id="vTemp">0°C</span></div>
+    <div class="m" title="ความชื้น"><span>💧</span><div class="bar" id="bHum"><i></i></div><span class="num" id="vHum">0%</span></div>
+    <div class="m" title="พร้อมลอกคราบ"><span>🐚</span><div class="bar" id="bGrow"><i></i></div><span class="num" id="vGrow">0%</span></div>
+  </div>
+  <div class="sub"><span class="sci" id="hSp">-</span><span class="num" id="vSpan">-</span><span class="num" id="vMolt">-</span><span class="num" id="vTime">-</span><span id="vDay"></span></div>
 </div>
 
 <div class="say" id="say" aria-live="polite"></div>
-<div class="log" id="log" hidden><h2>สมุดบันทึกผู้เลี้ยง</h2></div>
+<div class="log glass" id="log" hidden><h2>สมุดบันทึกผู้เลี้ยง</h2></div>
 
-<div class="tools" id="tools" hidden>
-  <button class="btn" id="tCricket">🦗 ให้จิ้งหรีด</button>
-  <button class="btn" id="tDubia">🪳 ให้แมลงสาบดูเบีย</button>
-  <button class="btn" id="tMist">💧 พ่นน้ำ</button>
-  <button class="btn on" id="tLed">💡 ไฟตู้</button>
-  <button class="btn on" id="tLamp">🔥 ไฟอุ่น</button>
-  <button class="btn on" id="tVib">〰 แรงสั่น</button>
-  <button class="btn" id="tFollow">🎥 ตามแมงมุม</button>
-  <button class="btn" id="tCine">🎬 มุมหนัง</button>
-  <button class="btn" id="tFast">⏩ เร่งเวลา</button>
-  <button class="btn" id="tQual">✨ ภาพ: สูง</button>
-  <button class="btn" id="tFull">⛶ เต็มจอ</button>
-  <button class="btn" id="tTank">🪟 มุมตู้จริง</button>
-  <button class="btn" id="tSaver">🎬 พักจอ</button>
-  <button class="btn" id="tSaverWin">🎬 พักจอ (หน้าต่าง)</button>
-  <button class="btn" id="tHide">🙈 ซ่อน UI</button>
+<!-- แผงตั้งค่า (ปิดไว้ก่อน): ปุ่มรองทั้งหมดอยู่ที่นี่ id เดิมทุกปุ่ม -->
+<div class="drawer glass" id="drawer" role="dialog" aria-label="ตั้งค่า">
+  <h2>ตั้งค่า</h2>
+  <div class="dGroup"><b>แสงในตู้</b>
+    <button class="btn on" id="tLed">💡 ไฟตู้</button>
+    <button class="btn on" id="tLamp">🔥 ไฟอุ่น</button></div>
+  <div class="dGroup"><b>แมงมุม</b>
+    <button class="btn on" id="tVib">〰 แรงสั่น</button>
+    <button class="btn" id="tFast">⏩ เร่งเวลา</button></div>
+  <div class="dGroup"><b>กล้อง</b>
+    <button class="btn" id="tCine">🎬 มุมหนัง</button>
+    <button class="btn" id="tTank">🪟 มุมตู้จริง</button></div>
+  <div class="dGroup"><b>ภาพและหน้าจอ</b>
+    <button class="btn" id="tQual">✨ ภาพ: สูง</button>
+    <button class="btn" id="tFull">⛶ เต็มจอ</button>
+    <button class="btn" id="tSaver">🎬 พักจอ</button>
+    <button class="btn" id="tSaverWin">🎬 พักจอ (หน้าต่าง)</button>
+    <button class="btn" id="tHide">🙈 ซ่อน UI</button></div>
+</div>
+
+<!-- แถบปุ่มหลัก: 4 ปุ่มที่ใช้บ่อย + สมุดบันทึก + ตั้งค่า -->
+<div class="tools glass" id="tools" hidden>
+  <button class="btn pill" id="tCricket" title="ให้จิ้งหรีด">🦗<small>จิ้งหรีด</small></button>
+  <button class="btn pill" id="tDubia" title="ให้แมลงสาบดูเบีย">🪳<small>ดูเบีย</small></button>
+  <button class="btn pill" id="tMist" title="พ่นน้ำ">💧<small>พ่นน้ำ</small></button>
+  <button class="btn pill" id="tFollow" title="กล้องตามแมงมุม">🎥<small>ตามดู</small></button>
+  <span class="sep"></span>
+  <button class="btn ico" id="tLogBtn" title="สมุดบันทึก" aria-label="สมุดบันทึก">📓<span class="badge" id="logBadge" hidden>0</span></button>
+  <button class="btn ico" id="tSettings" title="ตั้งค่า" aria-label="ตั้งค่า">⚙</button>
 </div>
 <button class="btn uiBack" id="uiBack">👁 แสดง UI</button>
 

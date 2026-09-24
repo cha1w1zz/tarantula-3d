@@ -16,7 +16,9 @@ function log(msg, cls) { // stamped with the real clock of the keeper's device
   p.innerHTML = `<b class="num">${t}</b> ${msg}`;
   const L = $('log'); L.insertBefore(p, L.children[1] || null);
   while (L.children.length > 30) L.removeChild(L.lastChild);
+  if (!document.body.classList.contains('logOpen')) { logUnread++; const b = $('logBadge'); b.textContent = logUnread > 9 ? '9+' : logUnread; b.hidden = false; }   // จุดแจ้งเตือนบนปุ่ม 📓
 }
+let logUnread = 0;
 /* the spider "talks": a speech bubble over it plus a line in the log. Events (pri) may interrupt after 3 s; mood talk waits its turn */
 let sayCD = 6, sayGap = 0, sayBubbleT = 0, chatT = 12; const sayLast = {};
 function say(cat, pri) {
@@ -437,12 +439,14 @@ function finishMolt() {
    RenderPass (ACES tone-mapped, linear, half-float) → BokehPass (macro depth of field) → UnrealBloom →
    grade (split-tone, sRGB encode, contrast, vignette, grain) → FXAA (on sRGB, as it expects) */
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new V2(1, 1) }, uNight: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new V2(1, 1) }, uNight: { value: 0 }, uCA: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; uniform float uNight; uniform vec2 uRes; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; uniform float uNight; uniform float uCA; uniform vec2 uRes; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
-      vec3 col = texture2D(tDiffuse, vUv).rgb;
+      // lens: chromatic aberration grows towards the frame edges (centre stays sharp), like a real macro lens
+      vec2 cq = vUv - .5, co = cq * dot(cq, cq) * uCA;
+      vec3 col = uCA > 0.0 ? vec3(texture2D(tDiffuse, vUv + co).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - co).b) : texture2D(tDiffuse, vUv).rgb;
       float l = dot(col, vec3(.2126,.7152,.0722));
       col = mix(col, col * vec3(.9,.99,1.08), (1.0 - smoothstep(0.0,.18,l)) * (.38 + uNight * .4));   // cool shadows (bluer at night)
       col = mix(col, col * vec3(1.08,1.0,.9), smoothstep(.25,.9,l) * .34);                          // warm highlights
@@ -476,7 +480,7 @@ function resize() {
   camera.updateProjectionMatrix();
   fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
-  bokeh.enabled = hi; bloom.enabled = hi;
+  bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .014 : lo ? 0 : .009;   // lens fringe: off on the lowest mode
   setShadowRes(hi ? 2048 : 1024);
   led.castShadow = lamp.castShadow = !lo;           // lowest mode: no shadows at all
   setMeadowDensity(hi ? 1 : lo ? .35 : .6);
@@ -532,6 +536,19 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const fsOff = () => { if (saverOn && !fsEl() && performance.now() - saverAt > 1500) saver(false); };
   d.addEventListener('fullscreenchange', fsOff); d.addEventListener('webkitfullscreenchange', fsOff);
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
+/* ---------- UI: แผงตั้งค่า, สมุดบันทึกแบบพับ, จางเองเมื่อไม่ได้แตะ ---------- */
+{ const d = document, B = d.body;
+  const panel = (cls, on) => { B.classList.toggle('setOpen', cls === 'setOpen' && on); B.classList.toggle('logOpen', cls === 'logOpen' && on);   // เปิดได้ทีละแผง
+    $('tSettings').classList.toggle('on', B.classList.contains('setOpen')); $('tLogBtn').classList.toggle('on', B.classList.contains('logOpen'));
+    if (B.classList.contains('logOpen')) { logUnread = 0; $('logBadge').hidden = true; } };
+  $('tSettings').onclick = () => panel('setOpen', !B.classList.contains('setOpen'));
+  $('tLogBtn').onclick = () => panel('logOpen', !B.classList.contains('logOpen'));
+  canvas.addEventListener('pointerdown', () => panel('', false));           // แตะฉาก = ปิดแผง
+  addEventListener('keydown', e => { if (e.key === 'Escape') panel('', false); });
+  // ไม่ขยับเมาส์/นิ้ว 5 วินาที → UI จางลง (ไม่จางตอนเปิดแผงอยู่)
+  let idleT = 0; const wake = () => { B.classList.remove('idle'); clearTimeout(idleT);
+    idleT = setTimeout(() => { if (!B.classList.contains('setOpen') && !B.classList.contains('logOpen')) B.classList.add('idle'); else wake(); }, 5000); };
+  ['pointermove', 'pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(ev => addEventListener(ev, wake, { passive: true, capture: true })); wake(); }
 // locked front view: the screen acts as the terrarium's front glass
 const CAM0 = { pol: controls.maxPolarAngle };
 function setCine(on) { cine = on; $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
@@ -660,6 +677,7 @@ function loop() {
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
   bokeh.uniforms.focus.value = fd; bokeh.uniforms.aperture.value = clamp(.0065 / fd, .00005, .0006);
+  if (typeof contactShadows === 'function') contactShadows();   // soft contact shadows under feet/body/prey (js/look.js)
   renderer.shadowMap.needsUpdate = true;
   composer.render();
   // speech bubble floats above the spider

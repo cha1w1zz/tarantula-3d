@@ -370,3 +370,44 @@ const CORKWALL = (() => {
     CORKWALL.map.repeat.set(TW / 22, (TH + 2) / 22); CORKWALL.normalMap.repeat.copy(CORKWALL.map.repeat);
     Object.assign(o.material, { map: CORKWALL.map, normalMap: CORKWALL.normalMap, roughness: .95 }); o.material.color.setScalar(.72); o.material.normalScale.set(1.2, 1.2); o.material.needsUpdate = true; } });
 }
+
+// ---------- 7. เงาสัมผัส (contact shadow): เงานุ่มตรงจุดที่ของแตะพื้น ใต้ตัวบึ้ง ปลายขาทั้ง 8 และใต้เหยื่อ ----------
+// เงาจากไฟอย่างเดียวเบลอและลอย ทำให้ดูเหมือนแมงมุม "ลอย" อยู่เหนือดิน เงาสัมผัสช่วยให้ตัวแนบพื้นเหมือนเกมใหญ่
+// ทำเป็นแผ่นวงรีบาง ๆ แผ่นเดียวแบบ Instanced (1 draw call) คูณสีพื้นให้มืดลง (ไม่มีแสงเพิ่ม ไม่มีเงาเพิ่ม) ใช้ได้ทุกโหมดภาพ
+const CONTACT_N = 16;
+const contactMesh = (() => {
+  const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2);
+  const k = new THREE.InstancedBufferAttribute(new Float32Array(CONTACT_N), 1); k.setUsage(THREE.DynamicDrawUsage); g.setAttribute('aK', k);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: `attribute float aK; varying vec2 vUv; varying float vK;
+      void main(){ vUv = uv; vK = aK; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `varying vec2 vUv; varying float vK;
+      void main(){ float d = length(vUv - .5) * 2.0, a = 1.0 - smoothstep(0.0, 1.0, d); a *= a;   // กลางเข้ม ขอบจางหายนุ่ม ๆ
+        gl_FragColor = vec4(vec3(1.0 - vK * a), 1.0); }`,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.ZeroFactor, blendDst: THREE.SrcColorFactor,   // สีพื้น × เงา
+    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 });
+  const m = new THREE.InstancedMesh(g, mat, CONTACT_N); m.frustumCulled = false; m.renderOrder = 1; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(m); return m;
+})();
+{ // ของที่ใช้ซ้ำทุกเฟรม (ไม่สร้างใหม่)
+  const o = new THREE.Object3D(), n = new V3(), up = new V3(0, 1, 0), qy = new THREE.Quaternion(), K = contactMesh.geometry.attributes.aK.array;
+  let i = 0;
+  const put = (x, z, yaw, sx, sz, k) => { if (i >= CONTACT_N || k < .01) return;
+    const e = .15, y = groundY(x, z);
+    n.set(groundY(x - e, z) - groundY(x + e, z), 2 * e, groundY(x, z - e) - groundY(x, z + e)).normalize();   // วางแนบตามความเอียงของพื้น/หิน
+    o.position.set(x, y + .02, z); o.quaternion.setFromUnitVectors(up, n).multiply(qy.setFromAxisAngle(up, yaw)); o.scale.set(sx, 1, sz); o.updateMatrix();
+    contactMesh.setMatrixAt(i, o.matrix); K[i++] = k; };
+  var contactShadows = function () {
+    i = 0;
+    if (spider && spider.legs[0].J) { const L = spider.span, p = spider.root.position, gy = groundY(p.x, p.z), fl = 1 - (spider.want.flip || 0) * .5;
+      put(p.x, p.z, spider.yaw, L * .38, L * .6, .62 * fl * clamp(1 - (p.y - gy) / (L * .3), 0, 1));                 // ใต้ลำตัว: ใหญ่ นุ่ม
+      put(p.x, p.z, spider.yaw, L * .2, L * .3, .35 * fl * clamp(1 - (p.y - gy) / (L * .2), 0, 1));                  // แกนกลางเข้มกว่า (AO ใต้ท้อง)
+      for (const l of spider.legs) { const t = l.J.tip, h = t.y - groundY(t.x, t.z);
+        put(t.x, t.z, 0, L * .085, L * .085, .5 * clamp(1 - h / (L * .07), 0, 1)); } }                             // ปลายขา: จุดเล็กเข้ม จางลงตอนยกขา
+    for (const q of prey) { if (q.eaten || q.burrowed > .6) continue; const mp = q.mesh.position, h = mp.y - groundY(mp.x, mp.z), big = q.kind === 'dubia' ? 1.25 : 1;
+      put(mp.x, mp.z, q.face, 1.3 * big, 2.3 * big, .5 * (1 - q.burrowed) * clamp(1 - h / 1.8, 0, 1)); }
+    for (let j = i; j < CONTACT_N; j++) K[j] = 0;                                                                     // ช่องที่ไม่ใช้ = ไม่มีเงา
+    contactMesh.count = Math.max(i, 1); contactMesh.instanceMatrix.needsUpdate = true; contactMesh.geometry.attributes.aK.needsUpdate = true;
+  };
+  window.contactShadows = contactShadows;
+}
