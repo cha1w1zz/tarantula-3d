@@ -417,12 +417,14 @@ class Spider {
     }
   }
   // spheres the foliage is pushed by: body, abdomen and the leg joints / segment middles
-  colliders(out) {
-    const L = this.span, r = this.root.position, ab = this.worldOf(this._abdC || (this._abdC = new V3(0, L * .025, -L * .165)));
-    out.push(r.x, r.y, r.z, L * .1, ab.x, ab.y, ab.z, L * .1);
+  colliders(out) { // spheres that wrap the real (furred) meshes: body first (the fern shader uses the first FERN_N)
+    const L = this.span, P = this._colP || (this._colP = [[0, .005, .075, .07], [0, .005, -.005, .065], [0, .025, -.115, .1], [0, .025, -.21, .09]].map(q => [new V3(q[0] * L, q[1] * L, q[2] * L), q[3] * L]));
+    for (const [p, r] of P) { const w = this.worldOf(p); out.push(w.x, w.y, w.z, r); }
+    const seg = (a, b, r, n) => { for (let k = 0; k <= n; k++) { const t = k / n; out.push(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, r); } };
+    for (const l of this.legs) { const j = l.J; if (!j) continue;   // joints, then segment fill (fur ≈ radius + hair)
+      out.push(j.knee.x, j.knee.y, j.knee.z, L * .045, j.ankle.x, j.ankle.y, j.ankle.z, L * .04); }
     for (const l of this.legs) { const j = l.J; if (!j) continue;
-      for (const p of [j.knee, j.ankle, j.tip, l.foot]) out.push(p.x, p.y, p.z, L * .03);
-      out.push((j.hip.x + j.knee.x) / 2, (j.hip.y + j.knee.y) / 2, (j.hip.z + j.knee.z) / 2, L * .035, (j.knee.x + j.ankle.x) / 2, (j.knee.y + j.ankle.y) / 2, (j.knee.z + j.ankle.z) / 2, L * .03); }
+      seg(j.hip, j.knee, L * .045, 3); seg(j.knee, j.ankle, L * .04, 3); seg(j.ankle, j.tip, L * .032, 2); seg(j.tip, l.foot, L * .028, 2); }
     return out;
   }
   orient(m, a, b) { m.position.copy(a); m.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize()); }

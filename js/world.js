@@ -593,11 +593,11 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
 }
 // ferns: arching fronds of serrated pinnae; they sway in the wind and lean away from the spider in the vertex shader
 // aRoot = (fern centre xyz, frond length): the further a vertex is from the centre, the more it moves
-const FERN_U = { uPush: { value: new THREE.Vector4(0, -1e4, 0, 0) } };
+const FERN_N = 20, FERN_U = { uPush: { value: Array.from({ length: FERN_N }, () => new THREE.Vector4(0, -1e4, 0, 0)) } };   // body + knees/ankles
 function fernSway(mat) {
   mat.onBeforeCompile = sh => {
     sh.uniforms.uTime = TURF_U.uTime; sh.uniforms.uPush = FERN_U.uPush;
-    sh.vertexShader = 'attribute vec4 aRoot;\nuniform float uTime;\nuniform vec4 uPush;\n' + sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = vec4( transformed, 1.0 );
+    sh.vertexShader = 'attribute vec4 aRoot;\nuniform float uTime;\nuniform vec4 uPush[' + FERN_N + '];\n' + sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = vec4( transformed, 1.0 );
       #ifdef USE_INSTANCING
       mvPosition = instanceMatrix * mvPosition;
       #endif
@@ -605,8 +605,8 @@ function fernSway(mat) {
       float fd = clamp(length(mvPosition.xz - aRoot.xz) / aRoot.w, 0.0, 1.2), fk = fd * fd;
       float g = sin(dot(aRoot.xz, vec2(.19, .13)) - uTime * 1.7) * .55 + sin(uTime * 2.3 + aRoot.x) * .25 + .45 + sin(uTime * 5.0 + mvPosition.x * .8 + mvPosition.z * .6) * .1;
       mvPosition.xyz += vec3(.82, 0.0, .57) * (fk * aRoot.w * .07 * g); mvPosition.y -= fk * aRoot.w * .02 * abs(g);
-      vec3 pd = mvPosition.xyz - uPush.xyz; float pl = length(pd), pr = uPush.w * 2.2;
-      if (pl < pr) mvPosition.xyz += pd / max(pl, 1e-3) * ((pr - pl) * min(fk * 1.5, 1.0));
+      for (int q = 0; q < ${FERN_N}; q++) { vec4 u = uPush[q]; vec3 pd = mvPosition.xyz - u.xyz; float pl = length(pd), pr = u.w * (q < 4 ? 1.6 : 1.4);
+        if (pl < pr) mvPosition.xyz += pd / max(pl, 1e-3) * ((pr - pl) * min(fk * 3.0 + .3, 1.0)); }
       mvPosition = viewMatrix * mvPosition; gl_Position = projectionMatrix * mvPosition;`);
   };
   mat.customProgramCacheKey = () => 'fern';
@@ -672,7 +672,7 @@ function addFoliage(geo, mat, depthMat, list, o) {
   list.forEach(({ m, c, g }, i) => {
     mesh.setMatrixAt(i, m); mesh.setColorAt(i, c);
     const base = new V3().setFromMatrixPosition(m), tip = o.tip.clone().applyMatrix4(m), mid = o.mid.clone().applyMatrix4(m), low = o.low.clone().applyMatrix4(m);
-    L.push({ base, tip, mid, low, len: tip.distanceTo(base), inv: new THREE.Matrix3().setFromMatrix4(m).invert(), D: new V3(), V: new V3(), ph: Math.random() * 6.28 });
+    L.push({ base, tip, mid, low, hi: tip.clone().lerp(mid, .5), ml: mid.clone().lerp(low, .5), len: tip.distanceTo(base), inv: new THREE.Matrix3().setFromMatrix4(m).invert(), D: new V3(), V: new V3(), ph: Math.random() * 6.28 });
     if (!clumps.length || clumps[clumps.length - 1].g !== g) clumps.push({ g, i0: i, i1: i, box: new THREE.Box3() });
     const cl = clumps[clumps.length - 1]; cl.i1 = i + 1; cl.box.expandByPoint(base).expandByPoint(tip);
   });
@@ -684,15 +684,15 @@ const _fp = new V3(), _fq = new V3(), _fo = new V3(), FWIND = new V3(.8, 0, .55)
 // cols: flat [x, y, z, r, ...] spheres
 function updateFoliage(dt, cols) {
   dt = clamp(dt, 1e-3, 1 / 30);
-  const now = performance.now() / 1000, pad = .1; TURF_U.uTime.value = now;
-  if (cols.length) FERN_U.uPush.value.set(cols[0], cols[1], cols[2], cols[3]);   // first collider = spider body
+  const now = performance.now() / 1000, pad = .2; TURF_U.uTime.value = now;
+  FERN_U.uPush.value.forEach((u, q) => q * 4 < cols.length ? u.fromArray(cols, q * 4) : u.set(0, -1e4, 0, 0));   // first colliders = spider body, knees, ankles
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let j = 0; j < cols.length; j += 4) { const r = cols[j + 3]; x0 = Math.min(x0, cols[j] - r); x1 = Math.max(x1, cols[j] + r); y0 = Math.min(y0, cols[j + 1] - r); y1 = Math.max(y1, cols[j + 1] + r); z0 = Math.min(z0, cols[j + 2] - r); z1 = Math.max(z1, cols[j + 2] + r); }
   const push = (l, rest, w) => { // move the leaf point (rest + D·w) out of every collider it is inside
     for (let j = 0; j < cols.length; j += 4) {
       _fp.copy(rest).addScaledVector(l.D, w); const dx = _fp.x - cols[j], dy = _fp.y - cols[j + 1], dz = _fp.z - cols[j + 2], rr = cols[j + 3] + pad, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 >= rr * rr) continue;
-      const d = Math.sqrt(d2) || 1e-3, pen = Math.min((rr - d) / w, l.len * .2); l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;   // capped per frame so a brush near the base can't fling the tip
+      const d = Math.sqrt(d2) || 1e-3, pen = Math.min((rr - d) / w, l.len * .6); l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;   // capped per frame so a brush near the base can't fling the tip (loose enough to keep up with a fast walk)
     } };
   for (const f of foliage) {
     const A = f.bend.array, damp = Math.exp(-f.c * dt); let dirty = !f.gpu;
@@ -704,7 +704,7 @@ function updateFoliage(dt, cols) {
         if (hit || l.V.lengthSq() + l.D.lengthSq() > 1e-8) {
           _fq.copy(l.D);
           l.V.addScaledVector(l.D, -f.k * dt).multiplyScalar(damp); l.D.addScaledVector(l.V, dt);
-          if (hit) { push(l, l.tip, 1); push(l, l.mid, .43); push(l, l.low, .16); }   // cantilever weights at uv.y 1 / .6 / .35
+          if (hit) { push(l, l.tip, 1); push(l, l.hi, .68); push(l, l.mid, .43); push(l, l.ml, .28); push(l, l.low, .16); }   // cantilever weights at uv.y 1 / .8 / .6 / .47 / .35
           // the leaf swings around its base: keep the tip at leaf length, and out of the ground (never above its rest height,
           // so tips that droop into the soil don't get snapped up and launched)
           _fo.copy(l.tip).add(l.D).sub(l.base).setLength(l.len).add(l.base);
