@@ -522,9 +522,10 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
   // screensaver: fullscreen, no UI, slow cinematic orbit around the spider; any tap/key exits
-  const saver = on => { saverOn = on; d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
-    if (on) { saverT = 0; if (!fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
-  $('tSaver').onclick = e => { e.stopPropagation(); saver(true); };
+  const saver = (on, full) => { saverOn = on; d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
+    if (on) { saverT = 0; if (full && !fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
+  $('tSaver').onclick = e => { e.stopPropagation(); saver(true, true); };
+  $('tSaverWin').onclick = e => { e.stopPropagation(); saverAt = performance.now(); saver(true, false); };
   const quit = e => { if (saverOn && performance.now() - saverAt > 800) { e.stopPropagation(); e.preventDefault(); saver(false); } };
   let saverAt = 0; $('tSaver').addEventListener('click', () => saverAt = performance.now());
   addEventListener('pointerdown', quit, true); addEventListener('keydown', quit, true);
