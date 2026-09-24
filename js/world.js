@@ -591,28 +591,52 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
     shellMats.forEach((mat, l) => layer(H * (l + 1) / N, .3, mat));
   });
 }
-// ferns: arching fronds of serrated pinnae
+// ferns: arching fronds of serrated pinnae; they sway in the wind and lean away from the spider in the vertex shader
+// aRoot = (fern centre xyz, frond length): the further a vertex is from the centre, the more it moves
+const FERN_U = { uPush: { value: new THREE.Vector4(0, -1e4, 0, 0) } };
+function fernSway(mat) {
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uTime = TURF_U.uTime; sh.uniforms.uPush = FERN_U.uPush;
+    sh.vertexShader = 'attribute vec4 aRoot;\nuniform float uTime;\nuniform vec4 uPush;\n' + sh.vertexShader.replace('#include <project_vertex>', `vec4 mvPosition = vec4( transformed, 1.0 );
+      #ifdef USE_INSTANCING
+      mvPosition = instanceMatrix * mvPosition;
+      #endif
+      mvPosition = modelMatrix * mvPosition;
+      float fd = clamp(length(mvPosition.xz - aRoot.xz) / aRoot.w, 0.0, 1.2), fk = fd * fd;
+      float g = sin(dot(aRoot.xz, vec2(.19, .13)) - uTime * 1.7) * .55 + sin(uTime * 2.3 + aRoot.x) * .25 + .45 + sin(uTime * 5.0 + mvPosition.x * .8 + mvPosition.z * .6) * .1;
+      mvPosition.xyz += vec3(.82, 0.0, .57) * (fk * aRoot.w * .07 * g); mvPosition.y -= fk * aRoot.w * .02 * abs(g);
+      vec3 pd = mvPosition.xyz - uPush.xyz; float pl = length(pd), pr = uPush.w * 2.2;
+      if (pl < pr) mvPosition.xyz += pd / max(pl, 1e-3) * ((pr - pl) * min(fk * 1.5, 1.0));
+      mvPosition = viewMatrix * mvPosition; gl_Position = projectionMatrix * mvPosition;`);
+  };
+  mat.customProgramCacheKey = () => 'fern';
+  return mat;
+}
 {
   const lg = new THREE.PlaneGeometry(1, .38, 6, 1); lg.translate(.5, 0, 0);
   { const p = lg.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i); p.setZ(i, -x * x * .12); } }
   lg.rotateX(-Math.PI / 2);
   const ferns = [[24, -15, 9], [-2, -16.5, 8], [-25, 14, 7], [25, 13.5, 6.5], [13, -16.5, 6.5], [-27, -4, 6]];
-  const inst = [], stemMat = track(new THREE.MeshStandardMaterial({ color: 0x24360f, roughness: .8 }), .25);
+  const inst = [], stemMat = fernSway(track(new THREE.MeshStandardMaterial({ color: 0x24360f, roughness: .8 }), .25));
   ferns.forEach(([fx, fz, size]) => {
     const by = groundY(fx, fz);
     for (let f = 0; f < 13; f++) {
       const yaw = f / 13 * Math.PI * 2 + rand(-.25, .25), len = size * rand(.65, 1.05), arch = rand(.55, .85), dir = new V2(Math.sin(yaw), Math.cos(yaw));
       const P = t => new V3(fx + dir.x * len * t * .8, by + len * (arch * t - arch * .95 * t * t) + .2, fz + dir.y * len * t * .8);
       const curve = new THREE.CatmullRomCurve3([0, .2, .4, .6, .8, 1].map(P));
-      const stem = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, .05, 5), stemMat); stem.castShadow = true; scene.add(stem);
+      const sg = new THREE.TubeGeometry(curve, 24, .05, 5), rootA = new Float32Array(sg.attributes.position.count * 4);
+      for (let i = 0; i < rootA.length; i += 4) rootA.set([fx, by, fz, size], i);
+      sg.setAttribute('aRoot', new THREE.BufferAttribute(rootA, 4));
+      const stem = new THREE.Mesh(sg, stemMat); stem.castShadow = true; scene.add(stem);
       for (let k = 2; k <= 22; k++) { const t = k / 23, p = P(t); if (!inTank(p.x, p.z, 1.2)) continue;
         const ll = len * .2 * Math.pow(1 - t, .55) + .25;
         [-1, 1].forEach(sd => { const ang = yaw + sd * rand(1.1, 1.35), vx = Math.sin(ang), vz = Math.cos(ang);
           dummy.position.copy(p); dummy.rotation.set(0, Math.atan2(-vz, vx), 0); dummy.rotateZ(-.25 - t * .55); dummy.rotateX(sd * .25); dummy.scale.set(ll, 1, ll); dummy.updateMatrix();
-          inst.push([dummy.matrix.clone(), new THREE.Color().setHSL(rand(.22, .28), rand(.4, .58), .22 + t * .12 + rand(0, .05)).convertSRGBToLinear()]); }); }
+          inst.push([dummy.matrix.clone(), new THREE.Color().setHSL(rand(.22, .28), rand(.4, .58), .22 + t * .12 + rand(0, .05)).convertSRGBToLinear(), [fx, by, fz, size]]); }); }
     }
   });
-  const fm = new THREE.InstancedMesh(lg, track(new THREE.MeshStandardMaterial({ map: PINNA_TEX, alphaTest: .45, side: THREE.DoubleSide, roughness: .55, emissive: 0x050a02 }), .35), inst.length);
+  const fm = new THREE.InstancedMesh(lg, fernSway(track(new THREE.MeshStandardMaterial({ map: PINNA_TEX, alphaTest: .45, side: THREE.DoubleSide, roughness: .55, emissive: 0x050a02 }), .35)), inst.length);
+  const rootI = new Float32Array(inst.length * 4); inst.forEach(([, , r], i) => rootI.set(r, i * 4)); lg.setAttribute('aRoot', new THREE.InstancedBufferAttribute(rootI, 4));
   inst.forEach(([m, c], i) => { fm.setMatrixAt(i, m); fm.setColorAt(i, c); }); fm.castShadow = fm.receiveShadow = true; fm.customDepthMaterial = cutoutDepth(PINNA_TEX, .45); scene.add(fm);
 }
 /* ---------- soft foliage: leaves part around whatever walks through them and spring back ----------
@@ -661,6 +685,7 @@ const _fp = new V3(), _fq = new V3(), _fo = new V3(), FWIND = new V3(.8, 0, .55)
 function updateFoliage(dt, cols) {
   dt = clamp(dt, 1e-3, 1 / 30);
   const now = performance.now() / 1000, pad = .1; TURF_U.uTime.value = now;
+  if (cols.length) FERN_U.uPush.value.set(cols[0], cols[1], cols[2], cols[3]);   // first collider = spider body
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let j = 0; j < cols.length; j += 4) { const r = cols[j + 3]; x0 = Math.min(x0, cols[j] - r); x1 = Math.max(x1, cols[j] + r); y0 = Math.min(y0, cols[j + 1] - r); y1 = Math.max(y1, cols[j + 1] + r); z0 = Math.min(z0, cols[j + 2] - r); z1 = Math.max(z1, cols[j + 2] + r); }
   const push = (l, rest, w) => { // move the leaf point (rest + D·w) out of every collider it is inside

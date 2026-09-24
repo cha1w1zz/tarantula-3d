@@ -27,4 +27,4 @@ Container has no GPU: Chromium/Playwright uses SwiftShader (very slow, ~30 s loa
 Render on demand: after load set `window.requestAnimationFrame = () => 0`, step `tick(1/30)` + `updateFoliage(...)` yourself, then `loop(); canvas.toDataURL()` (page.screenshot times out under SwiftShader). Leg clipping check: walk routes across rocks and measure how far `l.J` joints/segment middles are inside `groundY` (≈0 now for span 9 and 15).
 
 ## Known open items
-Log interior a bit dark; ferns slightly stylised (not bendable yet); big spiders' legs can clip log walls inside the tunnel; no sound yet.
+Log interior a bit dark; ferns slightly stylised (sway in wind + lean from spider body via shader, not per-leaf physics); big spiders' legs can clip log walls inside the tunnel; no sound yet.
