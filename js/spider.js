@@ -327,6 +327,12 @@ class Spider {
     }
     return v.set(best[0], best[1], best[2]);
   }
+  legBlocked(l) {             // a building's wall stands between hip and planted foot (the leg would have to pass through it)
+    const h = this.worldOf(l.hip), f = l.foot, L = this.span;
+    for (let u = .2; u < .95; u += .15) { const x = h.x + (f.x - h.x) * u, z = h.z + (f.z - h.z) * u;
+      for (const k of SOLIDS) if (gridY(k.grid, x, z) > h.y + (f.y - h.y) * u + L * .03 && solidNear(k, x, z).inside) return true; }
+    return false;
+  }
   placeFeet() {
     this.poseRoot(0, true);
     this.legs.forEach(l => { l.foot.copy(this.foothold(l, this.worldOf(l.rest), this.worldOf(l.hip))); l.swing = false; });
@@ -354,10 +360,14 @@ class Spider {
     const off = 1 - Math.max(st.hidden, st.flip);
     if (off > .01) {
       const e = this._eul || (this._eul = new THREE.Euler(0, 0, 0, 'YXZ')), v = this._v || (this._v = new V3());
-      e.set(this.pitchS, this.yaw, this.rollS); let floor = -1e9;
-      for (const o of BODY_UNDER) { v.set(o[0] * L, o[1] * L, o[2] * L).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .012); }
+      e.set(this.pitchS, this.yaw, this.rollS); let floor = -1e9, ahead = -1e9;
+      const ax = this.vel.x * .35, az = this.vel.z * .35;             // where the body will be in a moment: rise early for a step (roof edge)
+      for (const o of BODY_UNDER) { v.set(o[0] * L, o[1] * L, o[2] * L).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .012);
+        ahead = Math.max(ahead, groundY(this.pos.x + v.x + ax, this.pos.z + v.z + az) - v.y + L * .012); }
       for (const l of legs) { v.copy(l.hip).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .025); }   // hips sit wider than the body
-      this.bodyY = Math.max(this.bodyY, floor - (1 - off) * L * .5);
+      if (ahead > this.bodyY && !snap) this.bodyY = lerp(this.bodyY, ahead, clamp(dt * 6, 0, 1));
+      const need = floor - (1 - off) * L * .5;                         // hard floor, but a tall step is climbed fast rather than in one frame
+      if (need > this.bodyY) this.bodyY = snap ? need : Math.min(need, this.bodyY + L * 4 * dt);
     }
     this.root.position.set(this.pos.x, this.bodyY, this.pos.z);
     this.root.rotation.set(this.pitchS * (1 - st.flip), this.yaw, this.rollS * (1 - st.flip) + st.flip * Math.PI);
@@ -370,6 +380,7 @@ class Spider {
   // `raise` (0..1) is for a leg held up in the air: the distal segments then continue outward instead of hanging down
   solve(l, foot, tuck, raise) {
     const hipW = this.worldOf(l.hip), up = this.legUp, L = this.span; raise = raise || 0;
+    if (SOLIDS.length) { foot = foot.clone(); solidPush(foot, L * .02); }   // a swinging foot never cuts through a building corner
     const out = new V3(foot.x - hipW.x, 0, foot.z - hipW.z); if (out.lengthSq() < 1e-6) out.set(0, 0, 1); out.normalize();
     // a foot on the ground (rock face included) stands off that surface: the distal segments use the ground normal as "up"
     const touch = (1 - clamp((foot.y - groundY(foot.x, foot.z)) / (L * .08), 0, 1)) * (1 - raise);
@@ -378,7 +389,7 @@ class Spider {
     let tdir = null, base = foot;
     if (l.T) { // tarsus: nearly flat on the ground while planted, curls under while swinging
       tdir = outS.clone().addScaledVector(sUp, -.22 - .55 * tuck).normalize().lerp(out.clone().addScaledVector(up, .45).normalize(), raise).normalize();
-      base = foot.clone().addScaledVector(tdir, -l.t);
+      base = foot.clone().addScaledVector(tdir, -l.t); solidPush(base, L * .02);
     }
     const ad = sUp.clone().multiplyScalar(.55 + tuck * .3).addScaledVector(outS, -(.83 - tuck * .3)).normalize()
       .lerp(out.clone().negate().addScaledVector(up, -.45).normalize(), raise).normalize();
@@ -405,12 +416,12 @@ class Spider {
   unclip(hip, knee, ankle, base, a, b, c, r) {
     const P = [hip, knee, ankle, base], m = this._m || (this._m = new V3());
     const depth = v => groundY(v.x, v.z) + r - v.y;                       // > 0: inside the ground (vertical depth)
-    const out = (v, d) => { const n = groundN(v.x, v.z); v.addScaledVector(n, d * Math.max(n.y, .15)); };   // ≈ perpendicular depth
-    for (let it = 0; it < 5; it++) {
+    const out = (v, d, from, mul) => { if (solidPush(v, r, from, mul)) return; const n = groundN(v.x, v.z); v.addScaledVector(n, d * Math.max(n.y, .15)); };   // ≈ perpendicular depth
+    for (let it = 0, itN = SOLIDS.length ? 10 : 5; it < itN; it++) {
       let hit = false;
       for (let j = 1; j <= 2; j++) { const d = depth(P[j]); if (d > 0) { out(P[j], d); hit = true; } }
       for (let s = 0; s < 3; s++) { m.addVectors(P[s], P[s + 1]).multiplyScalar(.5); const d = depth(m); if (d <= 0) continue; hit = true;
-        if (s > 0) out(P[s], s === 2 ? d * 2 : d); if (s < 2) out(P[s + 1], s === 0 ? d * 2 : d); }
+        if (s > 0) out(P[s], s === 2 ? d * 2 : d, m, s === 2 ? 2 : 1); if (s < 2) out(P[s + 1], s === 0 ? d * 2 : d, m, s === 0 ? 2 : 1); }
       if (!hit) return;
       P[2].sub(P[3]).setLength(c).add(P[3]); P[1].sub(P[2]).setLength(b).add(P[2]);      // backward from the tarsus base
       P[1].sub(P[0]).setLength(a).add(P[0]); P[2].sub(P[1]).setLength(b).add(P[1]);      // forward from the hip
@@ -473,6 +484,9 @@ class Spider {
           if (d > L * .06 && !nb && swinging < 2 && raiseAmt(l) < .3) { this.startSwing(l, rand(.17, .24)); swinging++; }
         }
         if (!l.swing && Math.hypot(l.foot.x - restW.x, l.foot.z - restW.z) > L * .34) this.startSwing(l, .1);
+        // climbing onto a roof: a foot left down in the street with the building between it and the hip steps up
+        l.blockT = (l.blockT || 0) - dt;
+        if (!l.swing && l.blockT <= 0 && SOLIDS.length && this.legBlocked(l)) { this.startSwing(l, .14); l.blockT = .5; }
       }
       if (l.swing) {
         l.st += dt / l.dur; const s = Math.min(1, l.st);

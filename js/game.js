@@ -3,12 +3,23 @@
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
 let haze = 0, cine = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
-if (typeof CITY !== 'undefined') cityInside = CITY.inside;    // grass, prey and wander spots stay out of the buildings
+/* ---------- city: buildings are walkable like ROCKS (height grid from their solid shell). A building is a wall the spider
+   walks around until it is big enough to step up onto the roof (roof lower than CLIMB × leg span) ---------- */
+const CLIMB = .35, KAIJU = 2.4;                                // kaiju growth: span 5 → ×1.35 per molt up to maxSpan × KAIJU (31–38, 6–7 molts)
+const LOG_FIT = 22;                                            // bigger than this the spider no longer fits in the log hide
+if (typeof CITY !== 'undefined') {
+  cityInside = CITY.inside;                                     // grass, prey and wander spots stay out of the buildings
+  CITY.buildings.forEach(b => { if (!b.solid) return;
+    const g = b.solid, p = g.attributes.position, idx = g.index ? g.index.array : Array.from({ length: p.count }, (_, i) => i);
+    SOLIDS.push({ b, x: b.x, z: b.z, c: Math.cos(b.rot || 0), s: Math.sin(b.rot || 0), hw: b.w / 2, hd: b.d / 2, h: b.h, r: Math.hypot(b.w, b.d) / 2,
+      grid: heightGrid(p, idx, () => true) }); });
+}
+const walls = L => SOLIDS.filter(k => k.h > L * CLIMB);        // too tall to step onto at this size
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
 const exuviae = [];
-function newState(name, sp) { return { name, sp, span: 9, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true, led: true, phase: 'normal', phaseT: 0 }; }
+function newState(name, sp) { return { name, sp, span: 5, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true, led: true, phase: 'normal', phaseT: 0 }; }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
 function log(msg, cls) { // stamped with the real clock of the keeper's device
@@ -90,6 +101,8 @@ class Prey {
       g.scale.setScalar(1.3);                       // adult-sized roach (≈ 3 cm), a proper meal for a tarantula
       this.value = 35; this.speed = 3.2; this.vib = .9;
     }
+    // a kaiju-sized spider gets proportionally bigger prey (same look, scaled): bigger, faster, more filling
+    this.k = spider ? clamp(spider.span / 12, 1, 3.5) : 1; g.scale.multiplyScalar(this.k); this.speed *= this.k; this.value *= this.k;
     this.mats = [];
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; if (!this.mats.includes(o.material)) this.mats.push(o.material); } });
     this.mats.forEach(m => { if (m.userData.env != null) m.envMapIntensity = m.userData.env * Math.max(envLevel, 0); });
@@ -143,6 +156,8 @@ class Prey {
     if (!inTank(this.pos.x, this.pos.z, 2)) { this.yaw += Math.PI; this.pos.x = clamp(this.pos.x, -TW / 2 + 2, TW / 2 - 2); this.pos.z = clamp(this.pos.z, -TD / 2 + 2, TD / 2 - 2); }
     for (const o of preyObs) { const dx = this.pos.x - o.x, dz = this.pos.z - o.z, dd = Math.hypot(dx, dz) || 1, rr = o.r * 1.1 + .4;
       if (dd < rr && this.y < o.h) { this.pos.x = o.x + dx / dd * rr; this.pos.z = o.z + dz / dd * rr; this.yaw = Math.atan2(dx, dz) + rand(-1, 1); } }
+    for (const k of SOLIDS) { const n = solidNear(k, this.pos.x, this.pos.z), rr = .5 * this.k;      // building walls
+      if (n.d < rr && this.y < k.h) { this.pos.x += n.nx * (rr - n.d); this.pos.z += n.nz * (rr - n.d); this.yaw = Math.atan2(n.nx, n.nz) + rand(-1, 1); } }
     if (pushOutOfLog(this.pos, .6)) this.yaw += Math.PI * rand(.6, 1.4);
     const vy0 = this.vy;
     this.y += this.vy * dt; this.vy -= 30 * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; if (this.kind === 'cricket' && this.v > this.speed) this.v *= .5; }
@@ -158,7 +173,7 @@ class Prey {
     this.gaitK = lerp(this.gaitK, gait || digging ? 1 : 0, clamp(dt * 8, 0, 1));
     if (gait || digging) this.walk += dt * tm * (digging ? 26 : 3 + v * 4.5);
     const bob = Math.abs(Math.sin(this.walk)) * .03 * this.gaitK, roll = Math.sin(this.walk) * .05 * this.gaitK;
-    this.mesh.position.set(this.pos.x, gy + this.y - this.burrowed * 1.2 + bob - (this.crouch > 0 ? .08 : 0), this.pos.z);
+    this.mesh.position.set(this.pos.x, gy + this.y - this.burrowed * 1.2 * this.k + bob - (this.crouch > 0 ? .08 : 0), this.pos.z);
     this.mesh.rotation.set(this.pitch, this.face, roll);
     this.poseLegs(this.gaitK, this.gaitK, air);
     this.poseAntennae(now, threatNear || digging ? 5 : this.v > .1 ? 2.4 : 1.3, air ? -.15 : 0);
@@ -267,6 +282,9 @@ function drive(dt, target, maxSpeed) {
   obstacles.forEach(o => { const ox = sp.pos.x - o.x, oz = sp.pos.z - o.z, od = Math.hypot(ox, oz) || 1, R = o.r + L * .35;
     if (od < R + L * .4) { const push = (R + L * .4 - od) / (L * .4), side = Math.sign(ox * dz - oz * dx) || 1;
       des.x += (ox / od - oz / od * side * .8) * maxSpeed * push * .9; des.z += (oz / od + ox / od * side * .8) * maxSpeed * push * .9; } });   // slide around, never stall head-on
+  for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .35;           // buildings: slide along the wall
+    if (n.d < R + L * .4) { const push = clamp((R + L * .4 - n.d) / (L * .4), 0, 2), side = Math.sign(n.nx * dz - n.nz * dx) || 1;
+      des.x += (n.nx - n.nz * side * .8) * maxSpeed * push * .9; des.z += (n.nz + n.nx * side * .8) * maxSpeed * push * .9; } }
   accelerate(dt, des, L * 5 * TM);
   return d;
 }
@@ -296,7 +314,9 @@ function pickWander() {
   spider.route = planRoute(spider.pos, wanderSpot(), spider.span);
   setMode('wander');
 }
-function goBurrow(mode) { spider.route = planRoute(spider.pos, BURROW, spider.span); setMode(mode); }
+function goBurrow(mode) {                                       // too big for the log: just move off somewhere else
+  if (spider.span > LOG_FIT) { spider.route = planRoute(spider.pos, wanderSpot(), spider.span); setMode(mode === 'flee' ? 'flee' : 'wander'); return; }
+  spider.route = planRoute(spider.pos, BURROW, spider.span); setMode(mode); }
 function sensePrey(p, senseR) { // slit sensilla feel substrate vibration; the legs also touch prey that sits very close
   const d = Math.hypot(p.pos.x - spider.pos.x, p.pos.z - spider.pos.z);
   return !p.eaten && !p.held && p.burrowed <= 0 && ((p.moving && d < senseR * p.vib) || d < spider.span * .55);
@@ -330,7 +350,7 @@ function tick(dt) {
   if (S.phase === 'soft' && S.phaseT > 48) { S.phase = 'normal'; S.phaseT = 0; spider.soft = 0; log('เปลือกแข็งตัวแล้ว เขี้ยวกลับเป็นสีดำ พร้อมกินอาหาร', true); }
   if (S.phase === 'soft') spider.soft = clamp(1 - S.phaseT / 48, 0, 1);
 
-  const sp = spider, L = sp.span, speed = L * .6 * sp.sp.speed * M * TM;
+  const sp = spider, L = sp.span, speed = L * .6 * Math.pow(9 / Math.max(L, 9), .35) * sp.sp.speed * M * TM;   // kaiju sizes walk heavier (slower per body length)
   sp.modeT += dt;
   const w = sp.want; for (const k in w) w[k] = 0;
   const hungry = S.hunger > 30 && S.phase === 'normal';
@@ -387,14 +407,14 @@ function tick(dt) {
       p.pos.set(mouth.x, 0, mouth.z); p.v = 0; p.moving = false;
       p.mesh.position.copy(mouth); p.mesh.rotation.set(.5, sp.yaw + Math.PI / 2, 0);
       if (sp.modeT > 9 / TM) {
-        leaveBolus(mouth, p.kind);
+        leaveBolus(mouth, p.kind, p.k);
         p.remove(); S.autoFed = false; S.hunger = clamp(S.hunger - p.value * 1.4, 0, 100); S.growth = clamp(S.growth + p.value * (12 / L), 0, 100);
         log('ย่อยนอกร่างกายเสร็จ เหลือแต่ซาก (น้ำย่อยละลายเนื้อเหยื่อก่อนดูดกิน)', true); say('eat', true); setMode('idle'); save();
       }
       break;
     }
     case 'threat': w.threat = 1; w.fang = 1; brake(dt); faceTo(dt, camera.position.x, camera.position.z); if (sp.modeT > 2.6) setMode('idle'); break;
-    case 'flee': if (follow_route(dt, speed * 2.2) || sp.modeT > 12) setMode('hide'); break;
+    case 'flee': if (follow_route(dt, speed * 2.2) || sp.modeT > 12) setMode(L > LOG_FIT ? 'idle' : 'hide'); break;
     case 'molt': w.flip = 1; brake(dt); break;
   }
   if (S.phase !== 'normal' && (sp.mode === 'hunt' || sp.mode === 'strike')) setMode('idle');
@@ -405,6 +425,8 @@ function tick(dt) {
   if (pushOutOfLog(sp.pos, L * .22, nav.prev, navDims(L).ch)) { sp.vel.multiplyScalar(.5); }
   obstacles.forEach(o => { const dx = sp.pos.x - o.x, dz = sp.pos.z - o.z, d = Math.hypot(dx, dz) || 1, R = o.r - .3 + L * .18;
     if (d < R) { sp.pos.x = o.x + dx / d * R; sp.pos.z = o.z + dz / d * R; } });
+  for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .3;
+    if (n.d < R) { sp.pos.x += n.nx * (R - n.d); sp.pos.z += n.nz * (R - n.d); } }
   sp.update(dt);
   prey.forEach(p => p.update(dt, sp));
   for (let i = prey.length - 1; i >= 0; i--) if (prey[i].eaten) prey.splice(i, 1);
@@ -420,14 +442,14 @@ const boluses = [], bolusGeo = (() => { const g = new THREE.SphereGeometry(1, 12
   for (let i = 0; i < p.count; i++) { const v = new V3(p.getX(i), p.getY(i), p.getZ(i)); v.multiplyScalar(1 + PERLIN.noise(v.x * 2.5, v.y * 2.5, v.z * 2.5) * .35); p.setXYZ(i, v.x, v.y * .6, v.z); }
   g.computeVertexNormals(); return g; })();
 const bolusMat = track(new THREE.MeshStandardMaterial({ color: lin(0x2a1d12), roughness: .85 }), .3);
-function leaveBolus(p, kind) {
-  const m = new THREE.Mesh(bolusGeo, bolusMat), s = kind === 'dubia' ? .42 : .32; m.scale.setScalar(s);
+function leaveBolus(p, kind, k) {
+  const m = new THREE.Mesh(bolusGeo, bolusMat), s = (kind === 'dubia' ? .42 : .32) * (k || 1); m.scale.setScalar(s);
   m.position.set(p.x, groundY(p.x, p.z) + s * .3, p.z); m.rotation.y = rand(0, 6.3); m.castShadow = true; m.userData.t = 36; scene.add(m); boluses.push(m);
 }
 let humWarnT = 0, factT = 3, factI = Math.floor(Math.random() * 21);
 function finishMolt() {
   const ex = spider.exuvia(); scene.add(ex); exuviae.push(ex); if (exuviae.length > 2) scene.remove(exuviae.shift());
-  const old = spider.span; S.molts++; S.span = Math.min(spider.sp.maxSpan, +(old * 1.18).toFixed(1));
+  const old = spider.span; S.molts++; S.span = Math.min(spider.sp.maxSpan * KAIJU, +(old * 1.35).toFixed(1));
   const pos = spider.pos.clone(), yaw = spider.yaw; spider.dispose();
   spider = new Spider(S.sp, S.span); spider.yaw = yaw; spider.pos.copy(pos).add(new V3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(old * .6)); spider.placeFeet();
   S.phase = 'soft'; S.phaseT = 0; S.growth = 0; spider.soft = 1; setMode('idle');
@@ -608,11 +630,17 @@ $('goBtn').onclick = () => { const keys = Object.keys(SPECIES), sp = chosen || k
 if (matchMedia('(pointer: coarse)').matches) { quality = 'low'; $('tQual').textContent = '⚡ ภาพ: เร็ว'; }
 
 /* ---------- loop ---------- */
-S = newState('', 'lividus'); spider = new Spider('lividus', 10); pickWander();
+S = newState('', 'lividus'); spider = new Spider('lividus', 5); pickWander();
 resize();
 const clock = new THREE.Clock(); let hudT = 0, saveT = 0;
 // background & fog are shaded in linear space, so convert the sRGB picks (otherwise the room turns milky grey)
 const BG_DAY = new THREE.Color(0), BG_NIGHT = new THREE.Color(0), camPrev = new V3();
+let FOG0 = 0;
+// light shafts falling into the gaps beside the buildings (film shot only): the same beam sheets as under the LED bar
+const cityBeamMat = beamMat(0xfff0d6);
+{ const g = new THREE.PlaneGeometry(4, TH * 1.1); g.translate(0, TH * .55, 0);
+  SOLIDS.slice(0, 7).forEach((k, i) => { const m = new THREE.Mesh(g, cityBeamMat), side = i % 2 ? 1 : -1, d = k.hw + 2.2;
+    m.position.set(k.x + k.c * d * side, groundY(k.x, k.z) - 1, k.z - k.s * d * side); m.rotation.set(-.32, rand(-.4, .4), .18); beams.add(m); }); }
 // auto quality: if the first seconds run below ~30 fps (e.g. Chrome without GPU acceleration), switch to the fast mode once
 let perfN = 0, perfSum = 0, perfDone = false;
 function autoQuality(raw) {
@@ -628,7 +656,7 @@ function loop() {
   tick(dt);
   // foliage is shoved by the spider's body and legs and by prey, then springs back
   const cols = spider && spider.legs[0].J ? spider.colliders([]) : [];
-  prey.forEach(p => { if (!p.eaten && p.burrowed < .5) cols.push(p.mesh.position.x, p.mesh.position.y + .3, p.mesh.position.z, p.kind === 'cricket' ? .5 : .85); });
+  prey.forEach(p => { if (!p.eaten && p.burrowed < .5) cols.push(p.mesh.position.x, p.mesh.position.y + .3 * p.k, p.mesh.position.z, (p.kind === 'cricket' ? .5 : .85) * p.k); });
   updateFoliage(dt, cols);
   // lighting: room daylight follows the clock; LED bar and heat lamp follow their switches
   const day = daylight(), k = clamp(dt * 3, 0, 1), B = LIGHT_BASE;
@@ -658,6 +686,7 @@ function loop() {
   haze = Math.max(0, haze - dt / 40); BEAM_U.uTime.value = now; beams.visible = quality !== 'min';
   const air = (.3 + .7 * S.hum / 100) * (.35 + .65 * haze) * (1 - .55 * day);
   ledBeamMat.uniforms.uI.value = ledK * air * .09; lampBeamMat.uniforms.uI.value = lampK * air * .07;
+  cityBeamMat.uniforms.uI.value = lerp(cityBeamMat.uniforms.uI.value, cine ? day * .16 + ledK * .05 : 0, clamp(dt * 2, 0, 1));
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
   if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
   if (tankView && !saverOn) { // look straight in through the front glass
@@ -669,12 +698,20 @@ function loop() {
     let az = Math.atan2(off.x, off.z) + saverShot.spin * dt, el = Math.asin(clamp(off.y / r0, -1, 1));
     const k = clamp(dt * .25, 0, 1); el = lerp(el, saverShot.el, k); const r = lerp(r0, saverShot.r, k);
     camera.position.set(controls.target.x + Math.sin(az) * Math.cos(el) * r, controls.target.y + Math.sin(el) * r, controls.target.z + Math.cos(az) * Math.cos(el) * r); }
-  if (cine && spider && !tankView && !saverOn) { // low, close, at the spider's eye level
+  if (cine && spider && !tankView && !saverOn) { // kaiju shot: from down in the street, looking up at the spider
     const s = spider.span || 10, p = spider.root.position, k2 = clamp(dt * 2, 0, 1);
-    controls.target.lerp(p, k2); const off = camPrev.copy(camera.position).sub(controls.target); off.y = 0;
-    if (off.lengthSq() < .01) off.set(0, 0, 1); off.setLength(s * 1.6);
-    const cx = p.x + off.x, cz = p.z + off.z, cy = Math.max(p.y + s * .35, groundY(cx, cz) + 1);
-    camera.position.lerp(camPrev.set(cx, cy, cz), k2); }
+    controls.target.lerp(camPrev.set(p.x, p.y + s * .12, p.z), k2); const off = camPrev.copy(camera.position).sub(controls.target); off.y = 0;
+    if (off.lengthSq() < .01) off.set(0, 0, 1);
+    const ty = p.y + s * .12, a0 = Math.atan2(off.x, off.z);
+    const at = (a, f) => { const x = clamp(p.x + Math.sin(a) * s * f, -TW / 2 + 1, TW / 2 - 1), z = clamp(p.z + Math.cos(a) * s * f, -TD / 2 + 1, TD / 2 - 1);
+      return [x, groundY(x, z) + clamp(s * .05, .6, 2.5), z]; };
+    const clear = ([x, y, z]) => { for (let u = 0; u <= .85; u += .12) { const qx = x + (p.x - x) * u, qz = z + (p.z - z) * u, qy = y + (ty - y) * u;
+      for (const k of SOLIDS) if (gridY(k.grid, qx, qz) > qy && solidNear(k, qx, qz).inside) return false; } return true; };
+    let pick = null;                                               // keep the angle if the street is clear, else swing around / pull in
+    for (const da of [0, .45, -.45, .9, -.9, 1.4, -1.4, 2.2, -2.2, 3.1]) { for (const f of [1.7, 1.3, 1]) { const c = at(a0 + da, f); if (clear(c)) { pick = c; break; } } if (pick) break; }
+    camera.position.lerp(camPrev.set(...(pick || at(a0, .8))), k2); }
+  // haze between the buildings in the film shot; shafts of light through the street gaps by day
+  FOG0 = FOG0 || scene.fog.density; scene.fog.density = lerp(scene.fog.density, cine ? FOG0 * 2.4 : FOG0, clamp(dt, 0, 1));
   controls.update();
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
