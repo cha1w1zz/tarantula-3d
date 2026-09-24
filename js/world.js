@@ -616,7 +616,7 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
   inst.forEach(([m, c], i) => { fm.setMatrixAt(i, m); fm.setColorAt(i, c); }); fm.castShadow = fm.receiveShadow = true; fm.customDepthMaterial = cutoutDepth(PINNA_TEX, .45); scene.add(fm);
 }
 /* ---------- soft foliage: leaves part around whatever walks through them and spring back ----------
-   Every leaf is an instance pivoting on its base. Its tip offset D (world space) is a damped spring; sphere colliders
+   Every leaf is an instance pivoting on its base. Its tip offset D (world space) is a near-critically damped spring (c ≈ 1.4·√k); sphere colliders
    (spider body and leg joints, prey) shove it aside, the tip stays on a sphere of the leaf's length around the base and
    above the ground. The vertex shader bends the blade by D along a cantilever profile (base stiff, tip free). */
 const foliage = [];
@@ -655,7 +655,7 @@ function updateFoliage(dt, cols) {
     for (let j = 0; j < cols.length; j += 4) {
       _fp.copy(rest).addScaledVector(l.D, w); const dx = _fp.x - cols[j], dy = _fp.y - cols[j + 1], dz = _fp.z - cols[j + 2], rr = cols[j + 3] + pad, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 >= rr * rr) continue;
-      const d = Math.sqrt(d2) || 1e-3, pen = Math.min(rr - d, l.len * .5) / w; l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;
+      const d = Math.sqrt(d2) || 1e-3, pen = Math.min((rr - d) / w, l.len * .2); l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;   // capped per frame so a brush near the base can't fling the tip
     } };
   for (const f of foliage) {
     const A = f.bend.array, damp = Math.exp(-f.c * dt);
@@ -667,11 +667,12 @@ function updateFoliage(dt, cols) {
           _fq.copy(l.D);
           l.V.addScaledVector(l.D, -f.k * dt).multiplyScalar(damp); l.D.addScaledVector(l.V, dt);
           if (hit) { push(l, l.tip, 1); push(l, l.mid, .43); push(l, l.low, .16); }   // cantilever weights at uv.y 1 / .6 / .35
-          // the leaf swings around its base: keep the tip at leaf length, and out of the ground
+          // the leaf swings around its base: keep the tip at leaf length, and out of the ground (never above its rest height,
+          // so tips that droop into the soil don't get snapped up and launched)
           _fo.copy(l.tip).add(l.D).sub(l.base).setLength(l.len).add(l.base);
-          if (l.D.lengthSq() > l.len * l.len * .01) { const g = groundY(_fo.x, _fo.z) + .05; if (_fo.y < g) _fo.y = g; }
+          const g = Math.min(groundY(_fo.x, _fo.z) + .05, l.tip.y); if (_fo.y < g) _fo.y = g;
           l.D.subVectors(_fo, l.tip);
-          l.V.subVectors(l.D, _fq).divideScalar(dt); if (l.V.lengthSq() > 1600) l.V.setLength(40);
+          const vm = l.len * 2; l.V.subVectors(l.D, _fq).divideScalar(dt); if (l.V.lengthSq() > vm * vm) l.V.setLength(vm);
           if (l.V.lengthSq() + l.D.lengthSq() < 1e-8) { l.V.set(0, 0, 0); l.D.set(0, 0, 0); }
         }
         const s = f.wind * l.len * (Math.sin(now * 1.6 + l.base.x * .37 + l.base.z * .23 + l.ph * .3) * .6 + Math.sin(now * 2.7 + l.base.z * .5 + l.ph) * .4);
@@ -701,7 +702,7 @@ const plantSites = (() => {
     dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.4, .4), rand(0, 6.3), rand(-.4, .4)); const h = rand(2.2, 5.5); dummy.scale.set(1, h, h * .7); dummy.updateMatrix();
     list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(rand(.2, .26), rand(.35, .6), rand(.45, .7)).convertSRGBToLinear(), g }); } });
   addFoliage(bg, track(new THREE.MeshStandardMaterial({ map: BLADE_TEX, side: THREE.DoubleSide, roughness: .7 }), .3),
-    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .5), mid: new V3(0, .6, .18), low: new V3(0, .35, .06), k: 60, c: 3, wind: .025 });
+    new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .5), mid: new V3(0, .6, .18), low: new V3(0, .35, .06), k: 60, c: 10, wind: .025 });
 }
 // leafy clumps: broad arching straps (like lilyturf / spider plant) and round-leaved rosettes (like pilea / peperomia)
 const STRAP_TEX = alphaShape(64, 512, (g, w, h) => {
@@ -747,8 +748,8 @@ const OVAL_TEX = alphaShape(256, 512, (g, w, h) => {
     }
   });
   const mk = tex => track(new THREE.MeshStandardMaterial({ map: tex, alphaTest: .5, side: THREE.DoubleSide, roughness: .5, emissive: 0x040802 }), .4);
-  addFoliage(leafGeo(2, .55, .18, 0), mk(STRAP_TEX), cutoutDepth(STRAP_TEX, .5), strap, { tip: new V3(0, .75, .55), mid: new V3(0, .55, .2), low: new V3(0, .34, .07), k: 26, c: 2.2, wind: .03 });
-  addFoliage(leafGeo(4, .3, .05, .5), mk(OVAL_TEX), cutoutDepth(OVAL_TEX, .5), oval, { tip: new V3(0, .87, .3), mid: new V3(0, .57, .1), low: new V3(0, .34, .04), k: 40, c: 3, wind: .02 });
+  addFoliage(leafGeo(2, .55, .18, 0), mk(STRAP_TEX), cutoutDepth(STRAP_TEX, .5), strap, { tip: new V3(0, .75, .55), mid: new V3(0, .55, .2), low: new V3(0, .34, .07), k: 26, c: 7, wind: .03 });
+  addFoliage(leafGeo(4, .3, .05, .5), mk(OVAL_TEX), cutoutDepth(OVAL_TEX, .5), oval, { tip: new V3(0, .87, .3), mid: new V3(0, .57, .1), low: new V3(0, .34, .04), k: 40, c: 9, wind: .02 });
 }
 // dry leaf litter, curled
 {
