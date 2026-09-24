@@ -50,6 +50,9 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
   .hud{padding:8px 11px;gap:5px}.hud h1{font-size:17px}
   .row{grid-template-columns:84px 1fr 74px;font-size:12px}
 }
+body.noui .hud,body.noui .log,body.noui .tools,body.noui .say{display:none!important}
+.uiBack{display:none;position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:4;opacity:.55}
+body.noui .uiBack{display:block}
 .overlay{position:fixed;inset:0;display:grid;place-items:center;background:rgba(10,8,6,.72);padding:16px;z-index:5}
 .card{background:#17130f;border:1px solid var(--line);border-radius:14px;padding:22px;max-width:440px;width:100%;display:grid;gap:14px}
 .card h2{margin:0;font-size:24px;text-wrap:balance}
@@ -88,7 +91,10 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
   <button class="btn" id="tFollow">🎥 ตามแมงมุม</button>
   <button class="btn" id="tFast">⏩ เร่งเวลา</button>
   <button class="btn" id="tQual">✨ ภาพ: สูง</button>
+  <button class="btn" id="tFull">⛶ เต็มจอ</button>
+  <button class="btn" id="tHide">🙈 ซ่อน UI</button>
 </div>
+<button class="btn uiBack" id="uiBack">👁 แสดง UI</button>
 
 <div class="overlay" id="start">
   <div class="card">

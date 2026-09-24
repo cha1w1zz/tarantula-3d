@@ -504,6 +504,14 @@ $('tLamp').onclick = e => { S.lamp = !S.lamp; e.currentTarget.classList.toggle('
 $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); };
 $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); };
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
+{ const d = document, el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, fsEl = () => d.fullscreenElement || d.webkitFullscreenElement;
+  if (!req) $('tFull').hidden = true;
+  $('tFull').onclick = () => fsEl() ? (d.exitFullscreen || d.webkitExitFullscreen).call(d) : req.call(el);
+  const fsSync = () => { $('tFull').textContent = fsEl() ? '⛶ ออกเต็มจอ' : '⛶ เต็มจอ'; };
+  d.addEventListener('fullscreenchange', fsSync); d.addEventListener('webkitfullscreenchange', fsSync);
+  const ui = on => d.body.classList.toggle('noui', !on);
+  $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
+  addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
 $('tQual').onclick = e => { quality = quality === 'high' ? 'low' : 'high'; e.currentTarget.textContent = quality === 'high' ? '✨ ภาพ: สูง' : '⚡ ภาพ: เร็ว'; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
 function mistFx() {
