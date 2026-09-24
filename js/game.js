@@ -480,7 +480,7 @@ function resize() {
   camera.updateProjectionMatrix();
   fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
-  bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .014 : lo ? 0 : .009;   // lens fringe: off on the lowest mode
+  bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .007 : lo ? 0 : .004;   // lens fringe: off on the lowest mode
   setShadowRes(hi ? 2048 : 1024);
   led.castShadow = lamp.castShadow = !lo;           // lowest mode: no shadows at all
   setMeadowDensity(hi ? 1 : lo ? .35 : .6);
