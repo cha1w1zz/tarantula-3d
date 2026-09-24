@@ -22,8 +22,8 @@
   const m = MEADOW.mesh, c = new THREE.Color();
   for (let i = 0; i < m.count; i++) {
     const r = frac(i * .7548776);
-    if (r < .04) c.setHSL(.07, .55, .55);                 // ใบสีส้มอุ่นแซม
-    else c.setHSL(.40 + r * .06, .28 + r * .12, .55 + r * .12);
+    if (r < .04) c.setHSL(.06, .6, .42);                 // ใบสีส้มอุ่นแซม
+    else c.setHSL(.33 + r * .07, .38 + r * .15, .30 + r * .10);
     m.setColorAt(i, c.convertSRGBToLinear());
   }
   m.instanceColor.needsUpdate = true;
