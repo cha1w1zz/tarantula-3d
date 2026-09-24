@@ -617,6 +617,10 @@ function loop() {
   hemi.intensity = lerp(.035, B.hemi, day) * (.55 + .45 * ledK);
   moon.intensity = (1 - day) * B.moon * (1 - .6 * ledK);
   rim.intensity = lerp(.03, B.rim, day);
+  { // sun: rises on the left (east) at 6:00, overhead at noon, sets on the right at 18:00; low sun is warm and dim
+    const h = S.hour % 24, a = clamp((h - 6) / 12, 0, 1) * Math.PI, up = Math.sin(a);
+    sun.position.set(-Math.cos(a) * 80, 8 + up * 75, 45);
+    sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up); }
   scene.background.copy(BG_NIGHT).lerp(BG_DAY, day); scene.fog.color.copy(scene.background);
   grade.uniforms.uNight.value = (1 - day) * (1 - .7 * ledK);
   ledBar.userData.strip.material.color.setRGB(3, 3.05, 3.2).multiplyScalar(ledK + .02);

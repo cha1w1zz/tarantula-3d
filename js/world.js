@@ -910,7 +910,7 @@ const bulb = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 16), new THREE.Mes
 
 /* ---------- lights ---------- */
 // intensities here are the daytime targets; game.js blends them for night / switches (LIGHT_BASE)
-const LIGHT_BASE = { led: 2.3, lamp: 3.4, hemi: .3, moon: .34, rim: .4 };
+const LIGHT_BASE = { led: 2.3, lamp: 3.4, hemi: .45, moon: .34, rim: .4 };
 const hemi = new THREE.HemisphereLight(0xd6e0ff, 0x3a2414, LIGHT_BASE.hemi); scene.add(hemi);
 // full-spectrum LED bar in the lid: cool key light from above with soft-edged shadows
 const led = new THREE.DirectionalLight(0xf3f6ff, LIGHT_BASE.led);
@@ -918,6 +918,11 @@ led.position.set(4, 70, 12); led.target.position.set(0, 0, -2);
 led.castShadow = true; led.shadow.mapSize.set(2048, 2048); led.shadow.bias = -.0003; led.shadow.normalBias = .04;
 Object.assign(led.shadow.camera, { left: -34, right: 34, top: 26, bottom: -26, near: 30, far: 100 });
 scene.add(led, led.target);
+// sunlight through a window: game.js moves it along the sun's arc by the real clock
+const sun = new THREE.DirectionalLight(0xfff1dc, 0); sun.target.position.set(0, 4, 0);
+sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -.0004; sun.shadow.normalBias = .05;
+Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 10, far: 180 });
+scene.add(sun, sun.target);
 // ceramic heat lamp: warm pool of light over the log, falls off softly
 const lamp = new THREE.SpotLight(0xff8a40, LIGHT_BASE.lamp, 80, Math.PI / 5, 1, 1.5);
 lamp.position.set(-14, TH + 1.4, 2); lamp.target.position.set(-14, 0, -2); lamp.castShadow = true; lamp.shadow.mapSize.set(1024, 1024); lamp.shadow.bias = -.0004; lamp.shadow.normalBias = .03;
