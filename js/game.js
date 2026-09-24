@@ -118,7 +118,7 @@ class Prey {
         if (this.rising) { this.burrowed -= dt * .7; if (this.burrowed <= 0) { this.burrowed = 0; this.rising = false; } }
         else { this.burrowed = Math.min(1, this.burrowed + dt * .8); if (this.t < 0 && !threatNear) { this.rising = true; this.t = rand(1, 3); log('แมลงสาบดูเบียโผล่ขึ้นจากดิน'); } }
         this.v = 0;
-      } else if (threatNear && sp.mode === 'hunt') {
+      } else if (threatNear && sp.mode === 'hunt' && !(this.flushT > 0)) {
         this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z) + rand(-.4, .4); this.v = this.speed * 1.6;
         if (Math.random() < dt * .35) { this.burrowed = .01; this.t = rand(8, 16); log('ดูเบียมุดลงดินหนีผู้ล่า แมงมุมจึงจับแรงสั่นไม่ได้', true); }
       } else if (this.t < 0) { this.t = rand(1, 4); this.v = Math.random() < .55 ? this.speed * rand(.4, 1) : 0; this.yaw += rand(-1.5, 1.5); }
@@ -126,11 +126,12 @@ class Prey {
       if (this.hop > 0) this.hop -= dt;
       if (this.crouch > 0) { this.crouch -= dt * tm; if (this.crouch <= 0) { this.crouch = 0; this.v = this.jv; this.vy = this.jvy; this.hop = .5; this.kick = .14; } }
       else if (this.t < 0) { this.t = rand(.6, 2.5); if (Math.random() < .5) { this.yaw += rand(-1.5, 1.5); this.jump(this.speed * rand(1.2, 2), rand(5, 9)); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; this.yaw += rand(-1, 1); } }
-      if (threatNear && sp.mode === 'hunt' && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = this.face = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
+      if (threatNear && sp.mode === 'hunt' && !(this.flushT > 0) && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = this.face = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
       // males chirp at night: forewings raised and rubbed together
       if (this.chirp > 0) this.chirp -= dt; else if (isNight() && this.v < .3 && this.y <= 0 && !threatNear && Math.random() < dt * .06) this.chirp = rand(1.2, 3);
     }
     // the body turns toward where it wants to go (fast while squatting to jump) instead of snapping round
+    if (this.flushT > 0) this.flushT -= dt;
     const air = this.y > .05, wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
     if (!air) { const tr = (this.crouch > 0 ? 14 : this.kind === 'cricket' ? 5 : 4) * dt * tm; this.face += clamp(wrap(this.yaw - this.face), -tr, tr); }
     const v = air ? this.v : this.crouch > 0 ? 0 : this.v * clamp(Math.cos(wrap(this.yaw - this.face)) * .85 + .15, .1, 1);
@@ -240,7 +241,7 @@ function isNight() { const h = S.hour % 24; return h < 6 || h >= 19; }
 function daylight() { const h = S.hour % 24, ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }; return ss(5.3, 7, h) * (1 - ss(18.3, 19.8, h)); }
 function setMode(m) {
   if (spider.prey && spider.prey.held && m !== 'eat') { spider.prey.held = false; spider.prey.heldT = 0; spider.prey.y = 0; }   // dropped the meal
-  spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.best = Infinity;
+  spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.best = Infinity; nav.huntBest = Infinity; nav.huntT = 0;
   if (m === 'idle') nav.idleFor = rand(2.5, 6);
 }
 const nav = { pauseT: 0, burstT: 2, stuckT: 0, best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
@@ -349,6 +350,12 @@ function tick(dt) {
       const d = Math.hypot(p.pos.x - sp.pos.x, p.pos.z - sp.pos.z), felt = sensePrey(p, senseR * 1.3);
       if (felt) { nav.mem.copy(p.pos); nav.lost = 0; } else nav.lost += dt;
       if (d < L * .9 && (felt || d < L * .6)) { setMode('strike'); break; }
+      // prey wedged in a gap the spider can't fit into (log/rock crevice): no progress for a while → prey gets flushed out into the open
+      if (d < nav.huntBest - .3) { nav.huntBest = d; nav.huntT = 0; } else if ((nav.huntT += dt) > 3 && d < L * 2.5) {
+        nav.huntT = 0; nav.huntBest = Infinity; p.burrowed = 0; p.flushT = 2.5;
+        p.yaw = p.face = Math.atan2(sp.pos.x - p.pos.x, sp.pos.z - p.pos.z) + rand(-.6, .6);
+        if (p.kind === 'cricket' && p.jump) p.jump(p.speed * 1.4, 5); else { p.v = p.speed; p.t = rand(1.5, 2.5); }
+      }
       if (nav.lost > 10 / M || sp.modeT > 45) { setMode('idle'); log('เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
       if ((nav.replanT -= dt) <= 0 || !sp.route.length) { const old = sp.route[0]; sp.route = planRoute(sp.pos, nav.mem, L); nav.replanT = .5;
         if (!old || old.distanceTo(sp.route[0]) > .5) { nav.best = Infinity; nav.stuckT = 0; } }
