@@ -5,7 +5,8 @@
    Anchors = ray casts on the real meshes + soil. 3 draw calls: LineSegments (threads), Mesh (sheet film), Points (dew).
    Fibre glints, backlit glow, neon at night, dew after misting / at dawn, sway on the grass wind clock (TURF_U.uTime). */
 const WEBS = (() => {
-  const { min, max, abs, hypot, round, pow, floor, PI } = Math, t0 = performance.now(), R = seeded(5505), rr = (a, b) => a + R() * (b - a), TAU = PI * 2, UP = new V3(0, 1, 0);
+  let R = seeded(5505), cN = 0;   // one seeded stream per placement group (see tries)
+  const { min, max, abs, hypot, round, pow, floor, PI } = Math, t0 = performance.now(), rr = (a, b) => a + R() * (b - a), TAU = PI * 2, UP = new V3(0, 1, 0);
   const pick = a => a[R() * a.length | 0], mod = a => (a % TAU + TAU) % TAU, V = (x, y, z) => new V3(x, y, z), ad = (a, d, s) => a.clone().addScaledVector(d, s), cs = Math.cos, sn = Math.sin, gy = p => soilY(p.x, p.z), ang = () => rr(0, TAU);
 
   // ---- 1. all solid triangles in a 1-unit xz grid (for ray casts)
@@ -16,7 +17,7 @@ const WEBS = (() => {
   const src = [], stems = [];
   scene.traverse(o => { const m = o.material;
     if (!o.isMesh || o.isInstancedMesh || skip.has(o) || !m || !m.isMeshStandardMaterial || !(o.castShadow || o === CITY.meshes[1])) return;
-    src.push(o); if (o.geometry.attributes.aRoot) stems.push(o); });
+    (o.geometry.attributes.aRoot ? stems : src).push(o); });   // fern stems: only for fern webs (world.js places them randomly)
   let nT = 0; src.forEach(o => { const g = o.geometry; nT += (g.index ? g.index.count : g.attributes.position.count) / 3 | 0; });
   const TRI = new Float32Array(nT * 9), v = V(); let n = 0;
   src.forEach(o => { const g = o.geometry, p = g.attributes.position, ix = g.index, c = (ix ? ix.count : p.count) / 3 * 3 | 0;
@@ -170,7 +171,7 @@ const WEBS = (() => {
     const wd = V(cs(B[fi].a), 0, sn(B[fi].a)), E = ad(O, wd, ft + .1); E.y = gy(E) + .08;
     const ax = E.clone().sub(O), b1 = ax.clone().cross(UP).normalize(), b2 = b1.clone().cross(ax).normalize(), ring = (s, a) => O.clone().lerp(E, s).addScaledVector(b1, cs(a) * mR * (1 - s * .8)).addScaledVector(b2, sn(a) * mR * (1 - s * .8));
     for (let s = 0; s < 4; s++) for (let k = 0; k < 10; k++) { const a = k / 10 * TAU, b = (k + 1) / 10 * TAU, p = s / 4, q = (s + 1) / 4;
-      tri(ring(p, a), ring(p, b), ring(q, b), 0, 0, 0, .55, .55, .6); tri(ring(p, a), ring(q, b), ring(q, a), 0, 0, 0, .55, .6, .6);
+      tri(ring(p, a), ring(p, b), ring(q, b), 0, 0, 0, .4, .4, .45); tri(ring(p, a), ring(q, b), ring(q, a), 0, 0, 0, .4, .45, .45);
       seg(ring(p, a), ring(q, a), 0, 0, al * .7); if (s % 2 === 0) seg(ring(p, a), ring(p, b), 0, 0, al * .6); }
     // threads: radials, random mesh, lines up to the walls and down to the ground
     for (let i = 0; i < K; i++) { const a = a0 + (i + rr(-.3, .3)) / K * TAU; let q = sh(a, fs[0]); for (let r = 1; r < 5; r++) { const p = sh(a + rr(-.08, .08), fs[r]); seg(q, p, wt(fs[r - 1]), wt(fs[r]), al * .7); q = p; } }
@@ -225,7 +226,7 @@ const WEBS = (() => {
   const logEnd = ad(LOG.c, LOG.a, -LOG.len / 2 + .6);
   const orbAt = (p, L, Rm, o) => { const n = orient(p, L); return n && orb(p, n, Rm, o || {}); };
   const circ = (x, z, r, a, h) => { const p = V(x + cs(a) * r, 0, z + sn(a) * r); p.y = gy(p) + h; return p; };
-  const tries = (n, max, fn) => { for (let i = 0, k = 0; i < max && k < n; i++) k += fn() ? 1 : 0; };
+  const tries = (n, max, fn) => { R = seeded(5505 + ++cN * 101); for (let i = 0, k = 0; i < max && k < n; i++) k += fn() ? 1 : 0; };
 
   // hero webs (always shown): the log's back end, a big one in the back street
   orb(V(logEnd.x, gy(logEnd) + 2.6, logEnd.z), LOG.a.clone(), 5.2, { rank: -1 });
@@ -235,17 +236,6 @@ const WEBS = (() => {
   tries(12, 250, () => { const [x, z] = pick(POLES); return orbAt(circ(x, z, rr(.5, 2.5), ang(), rr(3, 14.5)), 7, rr(1.5, 4)); });
   tries(8, 200, () => { const k = pick(ROCKS); return orbAt(circ(k.x, k.z, k.r * rr(.9, 1.6), ang(), rr(.5, k.h + .8)), 4, rr(.9, 2.2)); });
   tries(3, 80, () => { const p = logWorld(rr(-LOG.len / 2, LOG.len / 2 - 3), pick([-1, 1]) * (LOG.R + rr(.4, 1.5))); p.y = gy(p) + rr(.6, 3); return orbAt(p, 4, rr(1, 2.2)); });
-  { // fern webs: two fronds + the ground (sway with the fern)
-    const fr = stems.map(o => { const p = o.geometry.attributes.position, r = o.geometry.attributes.aRoot, pts = [];
-      for (let i = 0; i + 6 <= p.count; i += 6) { const c = V(); for (let j = 0; j < 6; j++) c.add(v.fromBufferAttribute(p, i + j)); pts.push(c.multiplyScalar(1 / 6)); }
-      return { pts, f: FERNS.findIndex(F => hypot(F.x - r.getX(0), F.z - r.getZ(0)) < .5) }; }).filter(f => f.f >= 0);
-    tries(5, 120, () => { const A = pick(fr), Bs = fr.filter(b => b !== A && b.f === A.f), iA = 6 + (R() * 12 | 0); if (!Bs.length) return 0;
-      const P1 = A.pts[iA], B = Bs.reduce((m, b) => b.pts[iA].distanceTo(P1) < m.pts[iA].distanceTo(P1) ? b : m), P2 = B.pts[clamp(iA + (R() * 5 | 0) - 2, 4, 20)];
-      const dd = P1.distanceTo(P2); if (dd < 1 || dd > 4) return 0;
-      const G = P1.clone().lerp(P2, .5); G.y = gy(G) - .03; const C = P1.clone().add(P2).add(G).multiplyScalar(1 / 3); C.y += .15;
-      const nrm = P2.clone().sub(P1).cross(G.clone().sub(P1)).normalize(); if (solidAt(C) || !roomy(C, .8)) return 0;
-      return orbFrom(C, nrm, [P1, P2, G, A.pts[iA - 3], B.pts[iA - 3]], 1.3, { fern: A.f + 1 }); });
-  }
   // sheet / funnel webs at ground level
   tries(6, 150, () => { const k = pick(ROCKS), a = ang(); for (let s = .7; s < 1.6; s += .1) { const p = circ(k.x, k.z, k.r * s, a, rr(.25, .6)); if (!solidAt(p)) return sheet(p); } return 0; });
   tries(9, 250, () => { const b = pick(B), p = around(b, rr(.4, 1.2), 0); p.y = gy(p) + rr(.3, .8); return sheet(p); });
@@ -259,6 +249,17 @@ const WEBS = (() => {
   tries(18, 250, () => { const k = R() * 8 | 0, [x0, z0] = POLES[k], [x1, z1] = POLES[k + 1], o = pick([1.25, -1.25, 0, .85, -.85]), f = rr(.1, .9);
     const p = V(lerp(x0, x1, f) + (k >= 6 ? o : 0), 0, lerp(z0, z1, f) + (k < 6 ? o : 0)); p.y = gy(p) + 7; return hang(p, 8); });
 
+  { // fern webs: two fronds + the ground (sway with the fern; last, as their stems are random)
+    const fr = stems.map(o => { const p = o.geometry.attributes.position, r = o.geometry.attributes.aRoot, pts = [];
+      for (let i = 0; i + 6 <= p.count; i += 6) { const c = V(); for (let j = 0; j < 6; j++) c.add(v.fromBufferAttribute(p, i + j)); pts.push(c.multiplyScalar(1 / 6)); }
+      return { pts, f: FERNS.findIndex(F => hypot(F.x - r.getX(0), F.z - r.getZ(0)) < .5) }; }).filter(f => f.f >= 0);
+    tries(5, 120, () => { const A = pick(fr), Bs = fr.filter(b => b !== A && b.f === A.f), iA = 6 + (R() * 12 | 0); if (!Bs.length) return 0;
+      const P1 = A.pts[iA], B = Bs.reduce((m, b) => b.pts[iA].distanceTo(P1) < m.pts[iA].distanceTo(P1) ? b : m), P2 = B.pts[clamp(iA + (R() * 5 | 0) - 2, 4, 20)];
+      const dd = P1.distanceTo(P2); if (dd < 1 || dd > 4) return 0;
+      const G = P1.clone().lerp(P2, .5); G.y = gy(G) - .03; const C = P1.clone().add(P2).add(G).multiplyScalar(1 / 3); C.y += .15;
+      const nrm = P2.clone().sub(P1).cross(G.clone().sub(P1)).normalize(); if (solidAt(C) || !roomy(C, .8)) return 0;
+      return orbFrom(C, nrm, [P1, P2, G, A.pts[iA - 3], B.pts[iA - 3]], 1.3, { fern: A.f + 1 }); });
+  }
   // ---- 7. buffers, materials
   webs.sort((a, b) => a.rank - b.rank);
   const u = v => ({ value: v }), U = { uTime: TURF_U.uTime, uFern: u(FERNS), uLd: u([0, 1, 2, 3].map(() => V())), uLc: u([0, 1, 2, 3].map(() => new THREE.Color())),
