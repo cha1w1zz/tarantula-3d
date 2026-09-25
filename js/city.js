@@ -308,7 +308,7 @@ const CITY = (() => {
   const LIT = { 1: 1, 3: 1, 5: 1, 7: 1, 8: 1 };
   function windowAt(S, a, y, w, h, sty, sill) {
     const k = pick(WSTY[sty]), lit = LIT[k] && R() < .5;
-    onWall(S, a, y, w, h, WINR(k), lit ? rr(.45, 1.05) : 0, 0, 0, R() < .5);
+    onWall(S, a, y, w, h, WINR(k), lit ? rr(1.3, 2.6) : 0, 0, 0, R() < .5);
     if (sill !== false) wallBox(S, a, y - .14, w + .3, .14, .26, { col: GREY, nb: 1 });
   }
   const windowRow = (S, y, n, ww, hh, sty, m) => { for (let k = 0; k < n; k++) windowAt(S, m + (S.L - 2 * m) * (k + .5) / n, y, ww, hh, sty); };
@@ -337,7 +337,7 @@ const CITY = (() => {
   }
   function roofSign(x, y, z, w, h, rect, glow) {
     for (const s of [-1, 1]) box(x + s * w * .35, y, z - .1, .14, 1, .14, { col: FRAME, nb: 1 });
-    box(x, y + .9, z, w + .2, h + .2, .16, { col: FRAME }); decal([x - w / 2, y + 1, z + .08], [w, 0, 0], [0, h, 0], rect, glow, .43);
+    box(x, y + .9, z, w + .2, h + .2, .16, { col: FRAME }); decal([x - w / 2, y + 1, z + .08], [w, 0, 0], [0, h, 0], rect, glow * 2.2, .43);
   }
   function tank(x, y, z, r, h) {
     for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) box(x + dx * r * .6, y, z + dz * r * .6, .14, 1.3, .14, { col: DARKM, nb: 1 });
@@ -348,7 +348,7 @@ const CITY = (() => {
   const props = [], buildings = [], meshes = [], anchors = [];
   const worldOf = (x, y, z) => new V3(x, y, z).applyMatrix4(TM);
   function vending(S, a, g0, k) {
-    wallBox(S, a, g0, 1.1, 1.85, .8, { col: lin(pick(['#d8d8d2', '#b8332a', '#2f5d9a'])) }); onWall(S, a, g0 + .05, 1, 1.75, [k * 128, 768, 128, 256], 1.3, 0, .8);
+    wallBox(S, a, g0, 1.1, 1.85, .8, { col: lin(pick(['#d8d8d2', '#b8332a', '#2f5d9a'])) }); onWall(S, a, g0 + .05, 1, 1.75, [k * 128, 768, 128, 256], 3, 0, .8);
     const c = at(S, a, g0, .4), p = worldOf(c[0], 0, c[2]); props.push({ x: p.x, z: p.z, r: .8 });
   }
 
@@ -366,7 +366,7 @@ const CITY = (() => {
         windowRow(S.F, y, Math.max(1, Math.round((w - 1.5) / 2.7)), 1.55, 1.45, 'sash', .9);
         for (const s of [S.R, S.Lf]) if (R() < .45) windowAt(s, rr(2, d - 2), y, 1.1, 1.2, 'sash');
         if (R() < .7) acUnit(pick([S.R, S.Lf]), rr(1.5, d - 1.5), y - .3); }
-      if (D.neon != null) projSign(S.F, w - .45, g + 3.9, Math.min(3.1 * (n - 1) - .6, 4.4), D.neon, 2.6, D.fl);
+      if (D.neon != null) projSign(S.F, w - .45, g + 3.9, Math.min(3.1 * (n - 1) - .6, 4.4), D.neon, 5.5, D.fl);
       if (D.sign != null) projSign(S.F, .45, g + 3.9, 3.4, D.sign, 0, 0);
       if (D.hsign) roofSign(0, top + .9, d / 2 - .8, 3.4, 1.7, D.hsign, 1);
       if (D.tank) tank(w * .22, top, -d * .15, 1.1, 2); else roofAC(-w * .2, top, -d * .2);
@@ -379,7 +379,7 @@ const CITY = (() => {
       block(S, w, d, top, { tile: D.tile, col }); parapet(w, d, top, 1, col.clone().multiplyScalar(.85));
       for (let k = 1; k < n; k++) { const y = g + 3.8 + (k - 1) * fh; ledge(w, d, y - .15, col);
         windowRow(S.F, y + .75, Math.round(w / 2.3), 1.7, 1.6, 'office', .5); for (const s of [S.R, S.Lf]) windowRow(s, y + .75, Math.round(d / 2.8), 1.5, 1.6, 'office', .7); }
-      onWall(S.F, w * .34, g + .05, 4.2, 2.6, SHOP, .6, 0, .02); shutter(S.F, w * .8, 3, g, lin('#7d8288'));
+      onWall(S.F, w * .34, g + .05, 4.2, 2.6, SHOP, 1.2, 0, .02); shutter(S.F, w * .8, 3, g, lin('#7d8288'));
       if (D.sign != null) projSign(S.F, .45, g + 4.4, 5.6, D.sign, 0, 0);
       box(-w / 4, top, -d / 4, 3.4, 2.6, 3.2, { col, su: 1.2 }); decal([-w / 4 - .45, top, -d / 4 + 1.6], [.9, 0, 0], [0, 2, 0], DOORS);
       tank(w / 4, top, -d / 5, 1.1, 2.1); roofAC(w * .3, top, d * .15); roofSign(-w * .1, top + 1, d / 2 - .9, 5, 1.7, CLEAN, 1);
@@ -401,15 +401,15 @@ const CITY = (() => {
       box(w * .2, top, -d * .1, 3, 2.6, 3.2, { col, su: 1.2 });
       box(-w * .25, top, -d * .15, 2.8, .4, 2.4, { col: DARKM }); box(-w * .25, top + .4, -d * .15, 2.6, 1.8, 2.2, { tile: T.TILE, col: lin('#a9c0c6') });
       vines(S.F, 3, top + 1.1, 11, 1.4); vines(S.R, 2, top + 1.1, 14); vines(S.Lf, 2, top + 1.1, 9);
-      D.anchor = [-w * .3, g + 3, d / 2];
+      D.anchor = [-w * .3, g + 2.6, d / 2];
     },
     store(D, w, d, g, S) {                      // corner shop / convenience store, flat above
       const top = g + 6.9, col = lin(D.col);
       D.h = top + .8 - g; ctx.top = D.base + top + .8;
       block(S, w, d, top, { tile: T.TILE, col }); parapet(w, d, top, .8, col);
-      onWall(S.F, 2.9, g + .05, 4.2, 2.75, SHOP, 1.3, 0, .02); onWall(S.F, 7.1, g + .05, 4.2, 2.75, SHOP, 1.3, 0, .02, true);
+      onWall(S.F, 2.9, g + .05, 4.2, 2.75, SHOP, 2.6, 0, .02); onWall(S.F, 7.1, g + .05, 4.2, 2.75, SHOP, 2.6, 0, .02, true);
       onWall(S.F, w - 1.3, g, 1.2, 2.3, DOORS);
-      onWall(S.F, w / 2, g + 2.95, w - .4, 1.05, BANDPLAIN, 1.5, 0, .05); onWall(S.F, w / 2 + .3, g + 2.95, 4.2, 1.05, BAND, 1.5, .23, .08);
+      onWall(S.F, w / 2, g + 2.95, w - .4, 1.05, BANDPLAIN, 3, 0, .05); onWall(S.F, w / 2 + .3, g + 2.95, 4.2, 1.05, BAND, 3, .23, .08);
       box(0, g + 4, d / 2 + .45, w + .2, .18, .9, { col: GREY }); mossAlong([-w / 2, d / 2 + .6], [w / 2, d / 2 + .6], g + 4.18, .4, .35);
       windowRow(S.F, g + 4.8, 3, 1.6, 1.4, 'sash', 1);
       for (const s of [S.R, S.Lf]) windowRow(s, g + 4.8, 2, 1.5, 1.3, 'sash', 3);
@@ -472,12 +472,12 @@ const CITY = (() => {
       for (const s of [S.R, S.Lf]) { windowAt(s, d / 2, g + 3.5, 1.3, 1.1, 'shoji'); if (R() < .5) windowAt(s, d * .3, g + 1, 1.3, 1.1, 'shoji'); }
       acUnit(pick([S.R, S.Lf]), d * .7, g + 1.1);
       if (D.sign != null) projSign(S.F, w - .45, g + 3.1, 2.8, D.sign, 0, 0);
-      if (D.hsign) onWall(S.F, w * .66, g + 2.05, 2.4, 1.05, D.hsign, .8, 0, .05);
+      if (D.hsign) onWall(S.F, w * .66, g + 2.05, 2.4, 1.05, D.hsign, 1.8, 0, .05);
       vines(S.R, 2, eave, 5); vines(S.Lf, 2, eave, 5); vines(S.F, 1, eave, 3);
       D.anchor = [w * .1, eave - .7, d / 2];
     },
     ruin(D, w, d, g, S) {                       // half-collapsed 4-storey block with a rubble slope spilling into the street
-      const col = lin(D.col), H = g + 14.5, t = .35, rc = lin('#a19d93');
+      const col = lin(D.col), H = g + 14.5, t = .35, rc = lin('#7f7b72');
       D.h = 14.5; ctx.top = D.base + g + 3;
       const Hf = (x, z) => g + 2 + 12.5 * clamp(1 - .8 * (x / w + .5) - .55 * (z / d + .5), 0, 1) + fbm(x * .4, z * .4, 9.3, 2) * 3;
       const bite = (x, y, z) => Math.hypot(x - w * .1, (y - g - 3) * .8, z - d / 2) < 3.2;
@@ -493,7 +493,7 @@ const CITY = (() => {
       withM(tr(-w * .1, g + 6.8, d / 2 - 3.2).multiply(M4().makeRotationX(.8)), () => box(0, -.3, 1.6, 3.6, .3, 3.2, { col }));   // a slab hanging off its rebar
       const px = w * .08, pz = d / 2 + .8;
       lump(BODY, px, g - .7, pz, 6.5, 3.2, 4.4, rc, 0); lump(BODY, -w * .1, g - .3, -.5, 4.5, 3.4, 4, rc, 0);
-      for (let i = 0; i < 150; i++) { const a = R() * 6.283, q = Math.sqrt(R()), x = px + Math.cos(a) * q * 7, z = pz + Math.sin(a) * q * 5.2, y = g - .5 + 3.1 * Math.sqrt(Math.max(0, 1 - q * q)) * rr(.75, 1.02), s = rr(.3, 1.5);
+      for (let i = 0; i < 190; i++) { const a = R() * 6.283, q = Math.sqrt(R()), x = px + Math.cos(a) * q * 7, z = pz + Math.sin(a) * q * 5.2, y = g - .5 + 3.1 * Math.sqrt(Math.max(0, 1 - q * q)) * rr(.75, 1.02), s = rr(.2, 1.15);
         withM(tr(x, y, z).multiply(M4().makeRotationFromEuler(new THREE.Euler(rr(-1, 1), rr(0, 6), rr(-1, 1)))),
           () => box(0, -s * .3, 0, s * rr(.8, 2), s * rr(.3, .7), s * rr(.8, 1.6), { tile: R() < .2 ? T.TILE : 0, col: R() < .3 ? col : rc.clone().multiplyScalar(rr(.7, 1.1)) }));
         if (R() < .22) lump(MOSSB, x, y + .1, z, rr(.4, .9), rr(.15, .3), rr(.4, .9), MC()); }
