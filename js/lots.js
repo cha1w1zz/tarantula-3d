@@ -24,6 +24,16 @@ const LOTS = [
   { kind: 'wood', x: 24.5, z: 17, w: 8, d: 8, rot: LOT_W, col: '#b8ad96', kaw: '#6e6660' },
   { kind: 'shed', x: 24, z: 3, w: 7, d: 5, rot: LOT_W, hh: 3.6, col: '#8f9291' },
   { kind: 'shed', x: 25, z: 31, w: 6, d: 5, rot: LOT_W, hh: 4.2, col: '#7f8a86' },
+  // ruins mixed into the garden + two more houses on the town edge (kinds from js/city2.js). garden: 1 = stands in the garden
+  { kind: 'husk', x: 8, z: 12, w: 8.6, d: 6.8, col: '#c9bda3', col2: '#9d9a90', garden: 1 },
+  { kind: 'yard', x: -10, z: 21, w: 6.8, d: 4.8, col: '#74736d', garden: 1 },
+  { kind: 'mound', x: -22, z: 22, w: 5.8, d: 4.8, col: '#b8a88d', garden: 1 },
+  { kind: 'crushed', x: -52, z: 19, w: 8.8, d: 7.6, rot: LOT_W, col: '#c7b99b', kaw: '#4b525b', garden: 1 },
+  { kind: 'fence', x: -40, z: 35, w: 8.8, d: 2.8, col: '#76756f', garden: 1 },
+  { kind: 'rowx', x: 24.5, z: -8, w: 7.6, d: 7.8, rot: LOT_E, tile: 'TILE', col: '#94aa9d', lean: .05, sign: 0 },
+  { kind: 'kiosk', x: 25, z: 24.5, w: 5.6, d: 5.6, rot: LOT_W, col: '#cdb896', sign: 2 },
+  { kind: 'corner', x: 14, z: 20, w: 4.8, d: 4.8, col: '#706f6a', garden: 1 },
+  { kind: 'lantern', x: -4, z: 34, w: 5.8, d: 2.8, col: '#77756d', garden: 1 },
 ];
 // (x, z) within pad of a lot's footprint (same rotation convention as Object3D.rotation.y)
 function lotInside(x, z, pad) {
