@@ -100,7 +100,7 @@ class Prey {
       this.value = 35; this.speed = 3.2; this.vib = .9;
     }
     // a kaiju-sized spider gets proportionally bigger prey (same look, scaled): bigger, faster, more filling
-    this.k = spider ? clamp(spider.span / 12, 1, 3.5) : 1; g.scale.multiplyScalar(this.k); this.speed *= this.k; this.value *= this.k;
+    this.k = kind === 'human' ? 1 : spider ? clamp(spider.span / 12, 1, 3.5) : 1; g.scale.multiplyScalar(this.k);   // a person stays person-sized (town scale) this.speed *= this.k; this.value *= this.k;
     this.mats = [];
     g.traverse(o => { if (o.isMesh) { o.castShadow = true; if (!this.mats.includes(o.material)) this.mats.push(o.material); } });
     this.mats.forEach(m => { if (m.userData.env != null) m.envMapIntensity = m.userData.env * Math.max(envLevel, 0); });
@@ -124,11 +124,12 @@ class Prey {
     const now = performance.now() / 1000;
     if (this.held) { // bitten: legs kick and antennae flick, fading as the venom works (the spider's 'eat' state poses the body)
       this.heldT += dt; const k = Math.exp(-this.heldT * .7); this.walk += dt * 24 * k;
-      this.poseLegs(k, k * .8, false); this.poseAntennae(now, 1 + 5 * k, .4 * (1 - k)); if (this.limbs) this.limbs.update(); return; }
+      this.poseLegs(k, k * .8, false); this.poseAntennae(now, 1 + 5 * k, .4 * (1 - k)); if (this.rig) this.rig(this, dt, 0); if (this.limbs) this.limbs.update(); return; }
     const tm = TM; this.t -= dt;
     const d = Math.hypot(sp.pos.x - this.pos.x, sp.pos.z - this.pos.z);
     const threatNear = d < sp.span * 1.1 && sp.flip < .5 && sp.hidden < .5;
-    if (this.kind === 'dubia') {
+    if (this.kind === 'human') this.human(dt, sp, d);
+    else if (this.kind === 'dubia') {
       if (this.burrowed > 0) { // dubia roaches dig into the substrate to escape predators, and dig back out later
         if (this.rising) { this.burrowed -= dt * .7; if (this.burrowed <= 0) { this.burrowed = 0; this.rising = false; } }
         else { this.burrowed = Math.min(1, this.burrowed + dt * .8); if (this.t < 0 && !threatNear) { this.rising = true; this.t = rand(1, 3); log('แมลงสาบดูเบียโผล่ขึ้นจากดิน'); } }
@@ -148,7 +149,7 @@ class Prey {
     // the body turns toward where it wants to go (fast while squatting to jump) instead of snapping round
     if (this.flushT > 0) this.flushT -= dt;
     const air = this.y > .05, wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
-    if (!air) { const tr = (this.crouch > 0 ? 14 : this.kind === 'cricket' ? 5 : 4) * dt * tm; this.face += clamp(wrap(this.yaw - this.face), -tr, tr); }
+    if (!air) { const tr = (this.crouch > 0 ? 14 : this.kind === 'cricket' ? 5 : this.kind === 'human' ? 7 : 4) * dt * tm; this.face += clamp(wrap(this.yaw - this.face), -tr, tr); }
     const v = air ? this.v : this.crouch > 0 ? 0 : this.v * clamp(Math.cos(wrap(this.yaw - this.face)) * .85 + .15, .1, 1);
     this.pos.x += Math.sin(this.face) * v * dt * tm; this.pos.z += Math.cos(this.face) * v * dt * tm;
     if (!inTank(this.pos.x, this.pos.z, 2)) { this.yaw += Math.PI; this.pos.x = clamp(this.pos.x, -TW / 2 + 2, TW / 2 - 2); this.pos.z = clamp(this.pos.z, -TD / 2 + 2, TD / 2 - 2); }
@@ -182,11 +183,35 @@ class Prey {
       this.hind.forEach(h => { h.g.rotation.x = this.hindA + Math.sin(this.walk + (h.s > 0 ? 0 : Math.PI)) * .12 * this.gaitK; h.tib.rotation.x = this.tibA; });
     }
     if (this.wing) { const c = this.chirp > 0 ? 1 : 0; this.wing.rotation.x = c * (-.2 + Math.sin(now * 75) * .05); this.wing.position.y = .52 + c * .05; }
+    if (this.rig) this.rig(this, dt, v);
     if (this.limbs) this.limbs.update();
     this.setOpacity(1 - this.burrowed * .95);
     this.moving = this.burrowed <= 0 && (v > .3 || this.y > .05);
     this.vibT -= dt;
     if (this.moving && this.vibT <= 0 && vibOn) { spawnRipple(this.pos, this.vib); this.vibT = .45; }
+  }
+  // ชัยภัทร (a person, town scale ≈ 1.7): strolls about; feels the ground shake / sees the spider close by → sprints away,
+  // often to hide behind the nearest building (the building between him and the spider); tires after a few seconds
+  human(dt, sp, d) {
+    const L = sp.span, near = d < L * 2.4 || (sp.mode === 'hunt' && sp.prey === this && d < L * 3.5);
+    this.stam = clamp((this.stam == null ? 6 : this.stam) + (this.panic > .5 && this.v > this.run * .6 ? -dt : dt * .7), 0, 6);
+    if (near && sp.flip < .5) {
+      if (!(this.panic > .5)) humanSay(this, 'panic');
+      this.panic = 1; this.calmT = 4;
+      if ((this.fleeT = (this.fleeT || 0) - dt) <= 0) { this.fleeT = .7;
+        const ax = this.pos.x - sp.pos.x, az = this.pos.z - sp.pos.z, al = Math.hypot(ax, az) || 1; let tx = this.pos.x + ax / al * 14, tz = this.pos.z + az / al * 14, best = 1e9;
+        for (const k of SOLIDS) { const bx = k.x - this.pos.x, bz = k.z - this.pos.z, bd = Math.hypot(bx, bz);   // a building roughly away from the spider, not too far
+          if (bd > 22 || (bx * ax + bz * az) / (bd * al || 1) < .2) continue;
+          const sx = k.x - sp.pos.x, sz = k.z - sp.pos.z, sl = Math.hypot(sx, sz) || 1, r = Math.max(k.hw, k.hd) + 1.6, hx = k.x + sx / sl * r, hz = k.z + sz / sl * r;
+          if (bd < best && inTank(hx, hz, 2)) { best = bd; tx = hx; tz = hz; } }
+        this.yaw = Math.atan2(tx - this.pos.x, tz - this.pos.z) + rand(-.15, .15); }
+      this.v = this.stam > .5 ? this.run : this.run * .45;             // sprints faster than any insect, then tires
+      if (Math.random() < dt * .25) humanSay(this, 'panic');
+    } else {
+      this.calmT = (this.calmT || 0) - dt; if (this.calmT < 0) this.panic = Math.max(0, (this.panic || 0) - dt * .3);
+      if (this.panic > .3) this.v = this.speed * .9;                      // still hurrying, looking back
+      else if (this.t < 0) { this.t = rand(2, 5); this.v = Math.random() < .7 ? this.speed * rand(.8, 1.1) : 0; this.yaw += rand(-1.2, 1.2); if (Math.random() < .15) humanSay(this, 'calm'); }
+    }
   }
   setOpacity(op) { // materials only go transparent while the roach is digging in, so normal rendering keeps depth sorting
     if (Math.abs(op - this.opacity) < .005) return; this.opacity = op;

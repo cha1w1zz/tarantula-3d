@@ -227,7 +227,7 @@ function tick(dt) {
   if (hungry && ['wander', 'idle', 'toBurrow', 'hide'].includes(sp.mode)) {
     const p = prey.find(p => sensePrey(p, senseR));
     if (p) { sp.prey = p; nav.mem.copy(p.pos); nav.lost = 0; nav.replanT = 0; sp.route = []; setMode('hunt');
-      log(`${S.name} รู้สึกถึงแรงสั่นของ${p.kind === 'cricket' ? 'จิ้งหรีด' : 'ดูเบีย'} จึงย่องเข้าหา`, true); say('hunt', true); }
+      log(`${S.name} รู้สึกถึงแรงสั่นของ${PREY_TH[p.kind]} จึงย่องเข้าหา`, true); say('hunt', true); }
   }
   switch (sp.mode) {
     case 'idle': brake(dt); if (sp.modeT > nav.idleFor / M) pickWander(); break;
@@ -265,7 +265,8 @@ function tick(dt) {
       const dm = Math.hypot(p.pos.x - mouth.x, p.pos.z - mouth.z);
       if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
       else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
-      if (sp.modeT > .2 && dm < L * .3) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true); }
+      if (sp.modeT > .2 && dm < L * .3) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true);
+        if (p.kind === 'human') { BLOOD.splash(sp.worldOf(new V3(0, -L * .03, L * .2)), 50); humanSay(p, 'caught'); log(`${S.name} ขย้ำชัยภัทรด้วยเขี้ยว เลือดกระเซ็น!`); } }
       else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); say('miss', true); }
       break;
     }
@@ -275,8 +276,12 @@ function tick(dt) {
       const mouth = sp.worldOf(new V3(0, -L * .045, L * .17));
       p.pos.set(mouth.x, 0, mouth.z); p.v = 0; p.moving = false;
       p.mesh.position.copy(mouth); p.mesh.rotation.set(.5, sp.yaw + Math.PI / 2, 0);
+      if (p.kind === 'human') { // blood drips from the fangs; after the struggle the spider wraps him in silk
+        if ((p.dripT = (p.dripT || 0) - dt) <= 0) { p.dripT = rand(.12, .35); BLOOD.drip(sp.worldOf(new V3(rand(-.03, .03) * L, -L * .05, L * .19))); }
+        const w = clamp((sp.modeT * TM - 2.5) / 4, 0, 1); if (w > 0 && !p.silk) { p.silk = BLOOD.cocoon(p); log(`${S.name} พันใยห่อชัยภัทรเป็นรังไหม`); }
+        if (p.silk) p.silk.scale.setScalar(.2 + .8 * w); }
       if (sp.modeT > 9 / TM) {
-        leaveBolus(mouth, p.kind, p.k);
+        leaveBolus(mouth, p.kind, p.k); if (p.kind === 'human') BLOOD.stain(mouth, 1.1);
         p.remove(); S.autoFed = false; S.hunger = clamp(S.hunger - p.value * 1.4, 0, 100); S.growth = clamp(S.growth + p.value * (12 / L), 0, 100);
         log('ย่อยนอกร่างกายเสร็จ เหลือแต่ซาก (น้ำย่อยละลายเนื้อเหยื่อก่อนดูดกิน)', true); say('eat', true); setMode('idle'); save();
       }
@@ -394,16 +399,21 @@ canvas.addEventListener('pointerup', e => {
   if (Math.random() < spider.sp.aggro) { setMode('threat'); say('poke', true); log(`${S.name} ยกขาหน้าและกางเขี้ยวขู่ บึ้งไทยไม่มีขนพิษ จึงป้องกันตัวด้วยการขู่และกัด`, true); }
   else { goBurrow('flee'); log(`${S.name} ตกใจ วิ่งกลับเข้าโพรงใต้ขอนไม้`); say('flee', true); }
 });
+const PREY_TH = { cricket: 'จิ้งหรีด', dubia: 'ดูเบีย', human: 'ชัยภัทร' }, HUMAN_SPAN = 12;
 function feed(kind, auto) {
+  if (kind === 'human') {
+    if (S.span < HUMAN_SPAN) { log(`แมงมุมยังตัวเล็ก (ขา ${S.span} ซม.) ต้องโตถึง ${HUMAN_SPAN} ซม. ก่อน ชัยภัทรถึงจะกลัว`); return; }
+    if (prey.some(p => p.kind === 'human' && !p.eaten)) { log('ชัยภัทรยังวิ่งหนีอยู่ในเมือง ปล่อยได้ทีละคน'); return; } }
   if (prey.filter(p => !p.eaten).length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
   prey.push(new Prey(kind));
   if (auto) log(`🤖 ให้อาหารอัตโนมัติ: ${S.name} หิวจัด จึงปล่อย${kind === 'cricket' ? 'จิ้งหรีด' : 'แมลงสาบดูเบีย'} 1 ตัว`);
   else if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
   else if (S.phase === 'soft') log('เขี้ยวยังนิ่มหลังลอกคราบ ยังไม่ควรให้อาหาร', true);
-  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
+  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? '🏃 ชัยภัทรเดินหลงเข้ามาในเมืองร้าง… ถ้าเห็นแมงมุมยักษ์เขาจะวิ่งหนีสุดชีวิต' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
 }
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
+$('tHuman').onclick = () => feed('human');
 function mist(auto) { if (!auto) S.autoMist = false; S.hum = clamp(S.hum + 14, 0, 98); mistFx();
   if (auto) log(`🤖 พ่นน้ำอัตโนมัติ: ความชื้นต่ำมาก จึงพ่นละอองน้ำให้ 1 ครั้ง`); else { log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); say('misted', true); } }
 $('tMist').onclick = () => mist(false);
@@ -471,6 +481,7 @@ function hud() {
   bar('bTemp', (S.temp - 15) / 20 * 100, S.temp >= 24 && S.temp <= 28 ? 'ok' : 'bad'); $('vTemp').textContent = S.temp.toFixed(1) + '°C';
   bar('bHum', S.hum, S.hum >= 65 && S.hum <= 85 ? 'ok' : 'bad'); $('vHum').textContent = Math.round(S.hum) + '%';
   bar('bGrow', S.growth, S.growth >= 100 ? 'bad' : ''); $('vGrow').textContent = Math.round(S.growth) + '%';
+  { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยคนชื่อชัยภัทรเข้ามาในเมือง' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
   $('vSpan').textContent = S.span + ' ซม.'; $('vMolt').textContent = 'ลอก ' + S.molts + ' ครั้ง';
   const h = Math.floor(S.hour % 24); $('vTime').textContent = `วัน ${Math.floor(S.hour / 24) + 1} · ${String(h).padStart(2, '0')}:00`; $('vDay').textContent = isNight() ? '🌙 กลางคืน' : '☀️ กลางวัน';
 }
@@ -589,6 +600,7 @@ function loop() {
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
   bokeh.uniforms.focus.value = fd; bokeh.uniforms.aperture.value = clamp(.0065 / fd, .00005, .0006);
+  BLOOD.update(dt); preyTalk(dt);
   if (typeof contactShadows === 'function') contactShadows();   // soft contact shadows under feet/body/prey (js/look.js)
   renderer.shadowMap.needsUpdate = true;
   composer.render();
