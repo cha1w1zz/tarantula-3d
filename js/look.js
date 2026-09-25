@@ -144,8 +144,9 @@ const leafMat = (tex, key, emi) => track(new THREE.MeshStandardMaterial({ map: t
   add(fit, FITTONIA_TEX, { stem: .12, arch: .35, vee: .25, curl: .3, wave: 0 }, 50, 'fit', ['.3, .2, .22', .5]);
 }
 
-// ---------- 2. หญ้า: กอใบโค้งพลิ้ว เห็นดินระหว่างกอ โคนมืด ปลายสว่าง ----------
-// ตู้ใหญ่ขึ้น 4 เท่า: กอห่างขึ้น GS เท่า ใบใหญ่ขึ้น GS เท่า จำนวนใบรวมน้อยกว่าตู้เดิม (~8.7k ใบ)
+// ---------- 2. หญ้า/วัชพืช สเกลเมือง (ตึก 1 ชั้น ≈ 3, คน ≈ 1.7): ใบสูง ~0.4–1.9 (ต้นสูงแซม ~2.5) ----------
+// จำนวนใบรวมไม่เกินของเดิม (~4.5k) แต่ไปขึ้นหนาตรงที่ตามองเห็น: โคนผนังตึก, ขอบถนน + รอยแตกถนน, ขอบสวน (รอบหิน ขอน แนวรอยต่อเมือง),
+// บนกองซาก; ทุ่งโล่งกลางสวนเหลือบาง ๆ. โหมดภาพต่ำตัดหญ้าทุ่งก่อน ขอบ/โคนผนังอยู่นานสุด (priority p)
 const GRASS_TEX = alphaShape(16, 128, (g, w, h) => { const gr = g.createLinearGradient(0, h, 0, 0);
   gr.addColorStop(0, '#132319'); gr.addColorStop(.3, '#35603f'); gr.addColorStop(.8, '#7eaa86'); gr.addColorStop(1, '#b2d2ac'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
 let GRASS = null;
@@ -154,30 +155,73 @@ let GRASS = null;
   const bg = new THREE.PlaneGeometry(.13, 1, 1, 6); bg.translate(0, .5, 0);
   { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .88)); p.setZ(i, y * y * .55 + Math.sin(y * 3.2) * .05); }
     const n = bg.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0); }   // แสงแบบสนามหญ้า ไม่เป็นแผ่นการ์ด
-  const list = [], GS = 1.9, cell = 2.5 * GS;
-  // จุดกอ: ตารางสุ่มห่าง ~1.1 แล้วคัดด้วย noise ให้เป็นหย่อม ๆ (แน่นบางที่ โล่งบางที่)
-  for (let x = -TW / 2 + 1.5; x < TW / 2 - 1.5; x += 1.1 * GS) for (let z = -TD / 2 + 1.5; z < TD / 2 - 1.5; z += 1.1 * GS) {
-    const cx = x + lr(-.45, .45) * GS, cz = z + lr(-.45, .45) * GS, u = cx / GS, v = cz / GS;   // noise in the old scale → same patch shapes, just bigger
-    const m = fbm(u * .07, 3.3, v * .07) * 2.4 + fbm(u * .25, 5.1, v * .25) * .6;
-    if (m < .02 || LR() > sstep(.02, .35, m) || !okSpot(cx, cz, .5 * GS)) continue;
-    const n = 7 + (LR() * 6 | 0) + (m > .35 ? 3 : 0), size = GS * lr(.9, 1.5) * (.65 + .5 * sstep(.02, .5, m)) * lerp(1.2, .8, clamp((cz + TD / 2) / TD, 0, 1));
+  const list = [], cell = 4.75, BUDGET = 4500, B = CITY.buildings;
+  const free = (x, z) => clearSpot(x, z) && !onRock(x, z, .12);
+  // clump: ใบเอนออกจากกลางกอ; top = ขึ้นบนกองซาก/กำแพงเตี้ย (ผิวบนต้องหงาย); p0 = ลำดับความสำคัญ (ต่ำ = อยู่ถึงโหมดต่ำสุด)
+  const clump = (cx, cz, n, size, spread, p0, top) => {
     const hue = .36 + fbm(cx * .1, 9.7, cz * .1) * .1, gid = Math.floor((cx + TW / 2) / cell) * 100 + Math.floor((cz + TD / 2) / cell);
     for (let b = 0; b < n; b++) {
-      const a = LR() * 6.283, rn = Math.sqrt(LR()) * .28, r = rn * GS, px = cx + Math.sin(a) * r, pz = cz + Math.cos(a) * r, h = size * lr(.7, 1.35) * (1 - rn * 1.2);
-      dummy.position.set(px, groundY(px, pz) - .04, pz); dummy.rotation.set(lr(.05, .3) + rn * 1.4, a + lr(-.5, .5), lr(-.2, .2));   // ใบเอนออกจากกลางกอ
-      dummy.scale.set(lr(.8, 1.2) * GS, h, h); dummy.updateMatrix();
-      const dry = LR() < .05;
-      list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(dry ? .1 : hue + lr(-.015, .015), dry ? .25 : lr(.2, .34), dry ? lr(.5, .6) : lr(.4, .55)).convertSRGBToLinear(), g: gid });
+      const a = LR() * 6.283, rn = Math.sqrt(LR()), r = rn * spread, px = cx + Math.sin(a) * r, pz = cz + Math.cos(a) * r;
+      if (top ? !inTank(px, pz, 1) || groundY(px, pz) < soilY(px, pz) + .15 || groundN(px, pz).y < .72 : !free(px, pz)) continue;
+      const tall = LR() < .1, h = size * lr(.7, 1.3) * (1 - rn * .45) * (tall ? 1.45 : 1);
+      dummy.position.set(px, groundY(px, pz) - .03, pz); dummy.rotation.set(lr(.05, .3) + rn * .9, a + lr(-.5, .5), lr(-.2, .2));
+      dummy.scale.set(lr(.95, 1.35) * (tall ? .8 : 1), h, h); dummy.updateMatrix();
+      const dry = LR() < (top ? .15 : .08);
+      list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(dry ? lr(.09, .12) : hue + lr(-.015, .015), dry ? .3 : lr(.2, .34), dry ? lr(.48, .6) : lr(.4, .55)).convertSRGBToLinear(), g: gid, p: p0 + LR() * .7 });
+    }
+  };
+  const patchy = (x, z, k) => fbm(x * .23, 4.4, z * .23) > k;
+  // ก) โคนผนังตึก: วัชพืชเป็นแนวตามผนัง, มุมตึกเป็นกอใหญ่ (หลังตึกชิดตู้ด้านหลังมองไม่เห็น ใส่น้อย)
+  for (const b of B) {
+    const c = Math.cos(b.rot), s = Math.sin(b.rot), W = (lx, lz) => [b.x + lx * c + lz * s, b.z - lx * s + lz * c];
+    const P = 2 * (b.w + b.d);
+    for (let u = LR() * 1.2; u < P; u += lr(1.4, 2.6)) {
+      let lx, lz, nx = 0, nz = 0, q = u;
+      if (q < b.w) { lx = -b.w / 2 + q; lz = b.d / 2; nz = 1; } else if ((q -= b.w) < b.d) { lx = b.w / 2; lz = b.d / 2 - q; nx = 1; }
+      else if ((q -= b.d) < b.w) { lx = b.w / 2 - q; lz = -b.d / 2; nz = -1; } else { q -= b.w; lx = -b.w / 2; lz = -b.d / 2 + q; nx = -1; }
+      const o = lr(.2, .9), [x, z] = W(lx + nx * o, lz + nz * o);
+      if ((z < -35.5 || x > 54) && LR() < .8) continue;
+      if (!patchy(x, z, -.18)) continue;
+      clump(x, z, 5 + (LR() * 6 | 0), lr(.8, 1.7), .35 + o * .25, 0);
+    }
+    for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { const [x, z] = W(sx * (b.w / 2 + .5), sz * (b.d / 2 + .5)); if (LR() < .7) clump(x, z, 8 + (LR() * 6 | 0), lr(1.1, 1.9), .7, 0); }
+    // บนซากเตี้ย / กำแพงเตี้ย: หญ้าขึ้นบนผิวที่หงาย
+    if (b.h < 4) for (let i = 0, n = Math.round(b.w * b.d / 5); i < n; i++) { const [x, z] = W(lr(-.45, .45) * b.w, lr(-.45, .45) * b.d); clump(x, z, 4 + (LR() * 4 | 0), lr(.5, 1.1), .4, .1, true); }
+  }
+  // ข) ถนน (ดู city.js strip): แนวขอบฟุตบาท + รอยแตกบนยางมะตอยมีหญ้าเล็ก ๆ งอกตามรอย
+  const curb = (x0, z0, x1, z1) => { const L = Math.hypot(x1 - x0, z1 - z0); for (let t = LR() * 1.5; t < L; t += lr(1.7, 3.2)) { const x = lerp(x0, x1, t / L), z = lerp(z0, z1, t / L); if (patchy(x, z, -.12)) clump(x, z, 3 + (LR() * 4 | 0), lr(.5, 1.1), .3, .05); } };
+  curb(-58, -17.3, 29.6, -17.3); curb(-58, -22.7, 30.2, -22.7); curb(36, -22.7, 58, -22.7); curb(30.2, -16.8, 30.2, 38); curb(35.8, -16.8, 35.8, 38);
+  for (let k = 0; k < 18; k++) {
+    const onX = LR() < .7; let x = onX ? lr(-57, 57) : lr(31, 35), z = onX ? lr(-22, -18) : lr(-16, 37), a = LR() * 6.283;
+    for (let st = 0, n = 5 + (LR() * 9 | 0); st < n; st++) {
+      a += lr(-.7, .7); x += Math.cos(a) * .9; z += Math.sin(a) * .9;
+      if (onX ? z < -22.4 || z > -17.6 : x < 30.6 || x > 35.4) { a += Math.PI; continue; }
+      if (LR() < .6) clump(x, z, 2 + (LR() * 3 | 0), lr(.4, .85), .18, .15);
     }
   }
+  // ค) ขอบสวน: รอบโคนหิน, สองข้างขอน, แนวรอยต่อสวน/เมือง
+  ROCKS.forEach(k => { const n = Math.round(k.r * 3.2); for (let i = 0; i < n; i++) { const a = LR() * 6.283, d = k.r * lr(.95, 1.25) + .4, x = k.x + Math.sin(a) * d, z = k.z + Math.cos(a) * d;
+    clump(x, z, 6 + (LR() * 5 | 0), lr(.8, 1.6), .5, .05); } });
+  for (let al = -LOG.len / 2; al < LOG.len / 2; al += lr(1.2, 2.2)) for (const sd of [-1, 1]) if (LR() < .6) { const w = logWorld(al, sd * (LOG.R + lr(.5, 1.4))); clump(w.x, w.z, 6 + (LR() * 5 | 0), lr(.8, 1.6), .5, .05); }
+  curb(-58, -13.2, 18.5, -13.2); curb(19.2, -13, 19.2, 38.5); curb(-58, -12.4, 18, -12.4);
+  // ง) ทุ่งโล่งในสวน: หย่อมบาง ๆ ใช้งบที่เหลือ (ตัดก่อนในโหมดภาพต่ำ)
+  const cells = [];
+  for (let x = -TW / 2 + 1.5; x < TW / 2 - 1.5; x += 2.1) for (let z = -TD / 2 + 1.5; z < TD / 2 - 1.5; z += 2.1) {
+    const cx = x + lr(-.9, .9), cz = z + lr(-.9, .9), u = cx / 1.9, v = cz / 1.9, m = fbm(u * .07, 3.3, v * .07) * 2.4 + fbm(u * .25, 5.1, v * .25) * .6;
+    if (m > .05 && !inCity(cx, cz)) cells.push([cx, cz, m]);
+  }
+  cells.sort((a, b) => b[2] - a[2]);
+  for (const [cx, cz, m] of cells) { if (list.length >= BUDGET) break; clump(cx, cz, 9 + (LR() * 6 | 0) + (m > .35 ? 3 : 0), lr(.7, 1.4) * (.75 + .4 * sstep(.05, .5, m)), .55, .3); }
+  if (list.length > BUDGET) list.length = BUDGET;
   list.sort((a, b) => a.g - b.g);
   addFoliage(bg, track(new THREE.MeshStandardMaterial({ map: GRASS_TEX, side: THREE.DoubleSide, roughness: .75 }), .3),
     new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .55), mid: new V3(0, .6, .24), low: new V3(0, .35, .1), k: 60, c: 10, gpuWind: true });
   GRASS = foliage[foliage.length - 1]; GRASS.mesh.castShadow = false;
-  // ปุ่มคุณภาพภาพ: ลดความหนาแน่นหญ้าชุดใหม่แทน
+  // ปุ่มคุณภาพภาพ: ลดความหนาแน่นหญ้า (หญ้าทุ่งหายก่อน ขอบ/โคนผนังอยู่นานสุด)
   const M = []; { const m = new THREE.Matrix4(); for (let i = 0; i < GRASS.mesh.count; i++) { GRASS.mesh.getMatrixAt(i, m); M.push(m.clone()); } }
+  const PRI = list.map(o => o.p);
   window.setMeadowDensity = keep => { const zero = new THREE.Matrix4().makeScale(0, 0, 0), k = Math.min(1, keep * 1.4);
-    M.forEach((m, i) => GRASS.mesh.setMatrixAt(i, frac(i * .618034) < k ? m : zero)); GRASS.mesh.instanceMatrix.needsUpdate = true; };
+    M.forEach((m, i) => GRASS.mesh.setMatrixAt(i, PRI[i] < k ? m : zero)); GRASS.mesh.instanceMatrix.needsUpdate = true; };
   setMeadowDensity(quality === 'high' ? 1 : quality === 'min' ? .35 : .6);
 }
 // เฟิร์นและกกเดิม: เปลี่ยนจากเขียวมะนาวสด เป็นเขียวเซจอมฟ้าเข้มขึ้น (เก็บรูปทรงและการแหวกไว้)
@@ -245,9 +289,13 @@ let GRASS = null;
   const logSide = (x, z) => { const q = logLocal(x, z); return Math.abs(q.al) < LOG.len / 2 + 1 && Math.abs(q.sd) < LOG.R + 1; };
   // ใบไม้แห้ง: น้ำตาล/แทน/เทาอมเขียว เป็นหลัก, ส้มแดง ~8%
   const leaves = [];
-  [[-12, 6.5, 12, 1.4], [1.5, -3.5, 9, 1.1], [-25, -1, 10, 1.3], [14.5, 4, 8, 1], [-1.5, 17.5, 7, 1], [22, -4.5, 9, 1.1], [-19, 4, 6, .8]].map(([x, z, n, sp]) => [...nat(x, z), n, sp * NS]).forEach(([cx, cz, n, sp]) => {
+  // สเกลเมือง: ใบยาว ~0.6–1.2 (เดิม 2.6–4.8 = สูงเท่าประตู) แต่หลายใบขึ้น + กองใบไม้ติดมุมตึก/โคนผนัง (ลมพัดไปกองไว้)
+  const drifts = [];
+  CITY.buildings.forEach(b => { const c = Math.cos(b.rot), s = Math.sin(b.rot); for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) if (LR() < .45) {
+    const lx = sx * (b.w / 2 + .6), lz = sz * (b.d / 2 + .6); drifts.push([b.x + lx * c + lz * s, b.z - lx * s + lz * c, 10, .8]); } });
+  [[-12, 6.5, 30, 1.4], [1.5, -3.5, 22, 1.1], [-25, -1, 26, 1.3], [14.5, 4, 20, 1], [-1.5, 17.5, 16, 1], [22, -4.5, 22, 1.1], [-19, 4, 14, .8]].map(([x, z, n, sp]) => [...nat(x, z), n, sp * NS]).concat(drifts).forEach(([cx, cz, n, sp]) => {
     for (let i = 0; i < n; i++) { const x = cx + lg() * sp, z = cz + lg() * sp; if (!okSpot(x, z, .3) || logSide(x, z)) continue;
-      dummy.position.set(x, groundY(x, z) + .05 + i * .006, z); dummy.rotation.set(lr(-.15, .15), LR() * 6.3, lr(-.15, .15)); dummy.scale.setScalar(lr(1.3, 2.4) * depthScale(z)); dummy.updateMatrix();
+      dummy.position.set(x, groundY(x, z) + .03 + i * .004, z); dummy.rotation.set(lr(-.15, .15), LR() * 6.3, lr(-.15, .15)); dummy.scale.setScalar(lr(.4, .75) * depthScale(z)); dummy.updateMatrix();
       const r = LR();
       if (r < .08) c.setHSL(lr(.02, .06), lr(.5, .62), lr(.34, .42));          // ส้มแดง (จุดเด่นอุ่น)
       else if (r < .3) c.setHSL(lr(.14, .2), lr(.12, .22), lr(.3, .38));        // เทาอมเขียว (ใบเพิ่งร่วง)
@@ -261,7 +309,7 @@ let GRASS = null;
   [[-13.5, 8, 4], [3, -2.5, 3], [21, -3, 4], [-24, 1.5, 3], [7.5, 15.5, 3]].map(([x, z, n]) => [...nat(x, z), n]).forEach(([cx, cz, n]) => {
     const base = LR() * 3.14;
     for (let i = 0; i < n; i++) { const x = cx + lg() * .8, z = cz + lg() * .8; if (!okSpot(x, z, .8)) continue;
-      const len = lr(2.5, 6) * (i ? .7 : 1), r = lr(.09, .18);
+      const len = lr(1.1, 2.4) * (i ? .7 : 1), r = lr(.05, .09);   // กิ่งไม้ร่วงสเกลเมือง (ยาว ~1–2.4)
       dummy.position.set(x, groundY(x, z) + r * .7 + i * .05, z); dummy.rotation.set(0, base + lr(-.9, .9), lr(-.05, .05)); dummy.scale.set(len, r, r); dummy.updateMatrix();
       twigs.push([dummy.matrix.clone(), c.setHSL(lr(.06, .09), lr(.15, .3), lr(.22, .38)).convertSRGBToLinear().clone()]); } });
   inst(tg, track(new THREE.MeshStandardMaterial({ map: BARK.map, normalMap: BARK.normalMap, roughness: .9 }), .3), twigs);
@@ -280,7 +328,7 @@ let GRASS = null;
   const caps = [], stems = [];
   [[-3, LOG.R + .9, 7], [-LOG.len / 2 + .6, LOG.R + .8, 5]].forEach(([al0, sd0, n]) => {
     for (let i = 0; i < n; i++) { const w = logWorld(al0 + lg() * 1.1, sd0 + Math.abs(lg()) * .9), x = w.x, z = w.z, y = groundY(x, z);
-      const h = lr(.35, .9) * (i < 2 ? 1.3 : 1), cs = h * lr(.45, .7), lean = lr(-.25, .25), yaw = LR() * 6.3;
+      const h = lr(.22, .5) * (i < 2 ? 1.3 : 1), cs = h * lr(.45, .7), lean = lr(-.25, .25), yaw = LR() * 6.3;
       dummy.position.set(x, y - .05, z); dummy.rotation.set(lean, yaw, 0); dummy.scale.set(cs * .5, h, cs * .5); dummy.updateMatrix();
       stems.push([dummy.matrix.clone(), c.setHSL(.1, .15, lr(.5, .6)).convertSRGBToLinear().clone()]);
       const top = new V3(0, h, 0).applyEuler(new THREE.Euler(lean, yaw, 0, 'YXZ'));

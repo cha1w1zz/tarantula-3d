@@ -774,8 +774,8 @@ const plantSites = (() => {
   { const p = bg.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) * (1 - y * .92)); p.setZ(i, y * y * .5); } bg.computeVertexNormals(); }
   const tufts = [[20, -5], [-10, 9], [8, 17], [-22, -17], [27, 6], [-3, -9], [13, 13], [-27, 5], [20, -17], [-15, -1], [4, -15], [-20, 17]].map(([x, z]) => nat(x, z));
   const list = [];
-  tufts.forEach(([tx, tz], g) => { if (g % 2 || !clearSpot(tx, tz) || onRock(tx, tz, 1)) return; for (let b = 0; b < 22; b++) { const x = tx + gauss() * .7, z = tz + gauss() * .7;
-    dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.4, .4), rand(0, 6.3), rand(-.4, .4)); const h = rand(2.2, 5.5); dummy.scale.set(1, h, h * .7); dummy.updateMatrix();
+  tufts.forEach(([tx, tz], g) => { if (g % 2 || !clearSpot(tx, tz) || onRock(tx, tz, 1)) return; for (let b = 0; b < 22; b++) { const x = tx + gauss() * .5, z = tz + gauss() * .5;
+    dummy.position.set(x, groundY(x, z) - .1, z); dummy.rotation.set(rand(-.4, .4), rand(0, 6.3), rand(-.4, .4)); const h = rand(1, 2.4); dummy.scale.set(.7, h, h * .7);   // sedge at town scale (a storey ≈ 3) dummy.updateMatrix();
     list.push({ m: dummy.matrix.clone(), c: new THREE.Color().setHSL(rand(.2, .26), rand(.35, .6), rand(.45, .7)).convertSRGBToLinear(), g }); } });
   addFoliage(bg, track(new THREE.MeshStandardMaterial({ map: BLADE_TEX, side: THREE.DoubleSide, roughness: .7 }), .3),
     new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), list, { tip: new V3(0, 1, .5), mid: new V3(0, .6, .18), low: new V3(0, .35, .06), k: 60, c: 10, wind: .025 });
