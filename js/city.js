@@ -572,6 +572,46 @@ const CITY = (() => {
 
   if (EXT.decorate) { setM(M4()); ctx = { top: -99, moss: .5, inner: 0 }; EXT.decorate(KIT); setM(M4()); }
 
+  /* ---------- back wall (was a cork panel): a mossy concrete retaining wall (擁壁) with the upper town's ruined facades
+     standing on it, pressed against the back glass. Part of the merged meshes (no extra draw calls); not walkable ---------- */
+  {
+    setM(M4()); const zB = -TD / 2 + .1, zF = zB + .5, H0 = TH + 1.5, hR = 14;
+    ctx = { top: H0, moss: .8, inner: 0 };
+    face([-TW / 2, -1.5, zB], [TW, 0, 0], [0, H0 + 1.5, 0], { tile: T.CONC, col: lin('#5f5e59'), su: 3 });           // far layer: nothing shows through
+    const far = { o: [-TW / 2, 0, zB], r: [1, 0, 0], f: [0, 0, 1], L: TW };                                             // ...with the dark windows of the town behind
+    for (let y = hR + 2; y < H0 - 2; y += 3) for (let a = 1.5; a < TW - 1; a += rr(2.4, 3.4)) if (R() < .7) onWall(far, a, y, 1.3, 1.3, WINR(pick([0, 0, 2, 9, 4, 6])), R() < .03 ? 1.2 : 0);
+    // a window without a lit room behind most of them (the town is dead) + its sill
+    const win = (S, a, y, w, h, sty) => { const k = pick(WSTY[sty]); onWall(S, a, y, w, h, WINR(k), LIT[k] && R() < .12 ? rr(1, 2.2) : 0, 0, 0, R() < .5); wallBox(S, a, y - .14, w + .3, .14, .26, { col: GREY, nb: 1 }); };
+    // retaining wall: cast panels with a few broken patches, weep-hole spouts, a mossy coping ledge
+    ctx = { top: hR, moss: 1, inner: 0 };
+    face([-TW / 2, -1.5, zB + .25], [TW, 0, 0], [0, hR + 1.5, 0], { tile: T.CONC, col: lin('#9a988f'), su: 1.5, sv: 1.5,
+      keep: (i, j, nu, nv) => fbm(i * .31, j * .37, 4.2, 2) < .28 });
+    for (let x = -TW / 2 + 2; x < TW / 2 - 1; x += rr(3.2, 4.6)) for (const y of [3.5, 8.5]) if (R() < .8) box(x, y + rr(-.4, .4), zB + .55, .26, .26, .6, { col: DARKM });
+    box(0, hR, zB + .7, TW, .45, 1.1, { col: lin('#8d8b83'), su: 2 }); mossAlong([-TW / 2 + .5, zB + 1.1], [TW / 2 - .5, zB + 1.1], hR + .45, .55, .5);
+    // the upper town: one facade after another, ragged ruined tops, window rows, balconies, ledges, signs, vines
+    const STY = [['office', T.TILE, '#b9b3a4'], ['sash', T.PLAST, '#c9c0ac'], ['sash', T.CONC, '#a7aaa3'], ['shoji', T.PLAST, '#cfc4a8'], ['office', T.CONC, '#9fa39c'], ['ruin', T.CONC, '#a19e95']];
+    for (let x = -TW / 2; x < TW / 2 - .5;) {
+      const w = Math.min(rr(7.5, 13), TW / 2 - x), [sty, tile, c0] = pick(STY), col = lin(c0).multiplyScalar(rr(.85, 1.05));
+      const top = R() < .22 ? rr(34, 44) : rr(TH - 7, H0), y0 = hR + .45, x0 = x, ruin = sty === 'ruin' || R() < .35;
+      const edge = (px, py) => py < top - (ruin ? 5 : 1.2) * (fbm(px * .35, 1.7, x0, 2) + .5) - (ruin && Math.hypot(px - x0 - w * .6, py - top + 4) < 4.5 ? 9 : 0);
+      ctx = { top, moss: rr(.75, 1), inner: 0 };
+      wall([x, y0, zF], [w, 0, 0], [0, top - y0, 0], .3, { tile, col, su: 1.1, sv: 1.1, keep: (i, j, nu, nv) => edge(x0 + (i + .5) / nu * w, y0 + (j + .5) / nv * (top - y0)) });
+      const S = { o: [x, 0, zF], r: [1, 0, 0], f: [0, 0, 1], L: w }, fh = sty === 'office' ? 3.3 : 3, nx = Math.max(1, Math.round((w - 1) / 2.7));
+      for (let y = y0 + 1.6; y < top - 2.2; y += fh) {
+        for (let k = 0; k < nx; k++) { const a = .7 + (w - 1.4) * (k + .5) / nx; if (edge(x0 + a, y + 1.8) && edge(x0 + a - .8, y) && edge(x0 + a + .8, y)) win(S, a, y, sty === 'office' ? 1.7 : 1.45, 1.4, sty); }
+        if (sty === 'sash' && R() < .5 && edge(x0 + .3, y + 1) && edge(x0 + w - .3, y + 1)) { box(x + w / 2, y - .35, zF + .6, w - .4, .16, 1.2, { col, su: 2 }); box(x + w / 2, y - .2, zF + 1.15, w - .4, .9, .1, { col, su: 1.5 }); }
+        else if (edge(x0 + .2, y) && edge(x0 + w - .2, y)) { box(x + w / 2, y - .35, zF + .12, w, .2, .3, { col: col.clone().multiplyScalar(.9), su: 2 }); mossAlong([x + .2, zF + .2], [x + w - .2, zF + .2], y - .15, .45, .4); }
+        if (R() < .35) { const a = rr(.8, w - .8); if (edge(x0 + a, y + 1)) lump(MOSSB, x + a, y - .6, zF + .08, rr(.8, 2.2), rr(.5, 1.4), .22, MC()); }   // moss creeping down the wall
+        if (R() < .12 && edge(x0 + w * .3, y + 1)) acUnit(S, w * .3, y);
+      }
+      if (R() < .45) { const i = R() < .5 ? 5 + (R() * 3 | 0) : R() * 5 | 0, a = R() < .5 ? .45 : w - .45, y = rr(y0 + 3, Math.max(y0 + 4, top - 9)); if (edge(x0 + a, y + 5)) projSign(S, a, y, 4, i, i >= 5 ? 5 : 0, i >= 5 ? rr(.1, 1.2) : 0); }
+      vines(S, 3 + (R() * 4 | 0), top - (ruin ? 5 : 1), 18);
+      x += w;
+    }
+    vines({ o: [-TW / 2, 0, zB + .8], r: [1, 0, 0], f: [0, 0, 1], L: TW }, 16, hR + .4, 9);
+    setM(M4());
+  }
+
   /* ---------- materials + merged meshes ---------- */
   const U = { uNight: { value: 0 }, uTime: { value: 0 } };
   const texOf = (c, aniso) => { const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.flipY = false; t.anisotropy = aniso; return t; };

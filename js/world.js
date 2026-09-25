@@ -227,15 +227,6 @@ const ENDGRAIN = (() => {
   return { map, normalMap };
 })();
 
-/* cork background panel */
-const CORK = pbr(1024, 512, '#23170e', '#303030', (ga, gh, w, h) => {
-  for (let i = 0; i < 3400; i++) { const x = Math.random() * w, y = Math.random() * h, rx = rand(3, 20), ry = rand(2, 9), rot = rand(-.4, .4), c = hsl(rand(20, 30), rand(22, 36), rand(9, 27));
-    wrap(w, h, x, y, rx, (X, Y) => { ga.fillStyle = c; ga.beginPath(); ga.ellipse(X, Y, rx, ry, rot, 0, 6.3); ga.fill();
-      const gr = gh.createRadialGradient(X, Y, 0, X, Y, rx); gr.addColorStop(0, 'rgba(255,255,255,.7)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); gh.fillStyle = gr; gh.beginPath(); gh.ellipse(X, Y, rx, ry, rot, 0, 6.3); gh.fill(); }); }
-  for (let i = 0; i < 260; i++) { let x = Math.random() * w, y = Math.random() * h, a = rand(0, 6.3); ga.strokeStyle = 'rgba(6,3,1,.85)'; gh.strokeStyle = '#000'; ga.lineWidth = gh.lineWidth = rand(1, 3.5);
-    ga.beginPath(); gh.beginPath(); ga.moveTo(x, y); gh.moveTo(x, y); for (let k = 0; k < 6; k++) { a += rand(-.9, .9); x += Math.cos(a) * 12; y += Math.sin(a) * 6; ga.lineTo(x, y); gh.lineTo(x, y); } ga.stroke(); gh.stroke(); }
-}, 3, 2, 1);
-
 /* walnut table */
 const TABLE = pbr(1024, 1024, '#2a1a10', '#808080', (ga, gh, w, h) => {
   const planks = 5, ph = h / planks;
@@ -871,14 +862,7 @@ function setMeadowDensity() {}
     const m = new THREE.Mesh(g, tb); m.position.set(x, groundY(x, z) + r * .6, z); m.rotation.y = rand(0, 6.3); m.castShadow = m.receiveShadow = true; scene.add(m); }
 }
 
-/* ---------- cork background, glass, frame, fixtures, room ---------- */
-{
-  const g = new THREE.PlaneGeometry(TW - .6, TH + 2, 240, 120), p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { const x = p.getX(i), y = p.getY(i); p.setZ(i, (fbm(x * .09, y * .09, 2, 4) + .6) * 2.2 + Math.abs(PERLIN.noise(x * .3, y * .5, 5)) * .6); }
-  g.computeVertexNormals();
-  const m = new THREE.Mesh(g, track(new THREE.MeshStandardMaterial({ map: CORK.map, normalMap: CORK.normalMap, normalScale: new V2(1.5, 1.5), roughness: 1 }), .25));
-  m.position.set(0, TH / 2 - 1, -TD / 2 + .1); m.receiveShadow = true; m.castShadow = true; scene.add(m);
-}
+/* ---------- glass, frame, fixtures, room (the back wall is a mossy town wall built by city.js) ---------- */
 const glassGroup = new THREE.Group(); scene.add(glassGroup);
 {
   // glass = reflections only: black base + additive blending, so it never hazes the view (a lit white diffuse at 7% did)
@@ -914,6 +898,7 @@ const ledBar = new THREE.Group();
   const strip = new THREE.Mesh(new THREE.PlaneGeometry(TW * .78, 1.6), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xf3f6ff).multiplyScalar(3) }));
   strip.rotation.x = Math.PI / 2; strip.position.y = -.46; ledBar.add(body, strip); ledBar.userData.strip = strip;
   ledBar.position.set(0, TH + .9, -TD / 8); scene.add(ledBar);
+  ledBar.visible = false;                                      // the fixtures are hidden in the lid: only their light and god rays show
 }
 const LAMP_P = natV(-14, 2);                                  // heat lamp hangs over the log's front, as in the old layout
 const bulb = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xff8c3a).multiplyScalar(4) }));
@@ -921,6 +906,7 @@ const bulb = new THREE.Mesh(new THREE.SphereGeometry(1.3, 24, 16), new THREE.Mes
   const hood = new THREE.Mesh(new THREE.LatheGeometry([[0, 4.5], [1.2, 4.4], [2.4, 3.6], [3.8, 1.8], [4.6, 0], [4.5, -.1]].map(([r, y]) => new V2(r, y)), 48),
     track(new THREE.MeshStandardMaterial({ color: 0x2a2521, metalness: .9, roughness: .3, side: THREE.DoubleSide }), 1));
   hood.position.set(LAMP_P.x, TH + 1.2, LAMP_P.z); bulb.position.set(LAMP_P.x, TH + 2, LAMP_P.z); scene.add(hood, bulb);
+  hood.visible = bulb.visible = false;
 }
 
 /* ---------- lights ---------- */

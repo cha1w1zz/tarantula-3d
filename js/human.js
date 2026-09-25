@@ -6,8 +6,12 @@
      humanSay(p, cat)         line over his head ('panic' | 'calm' | 'caught')
      preyTalk(dt)             moves the bubbles (called from game.js loop)
      BLOOD.splash(pos, n) / BLOOD.drip(pos) / BLOOD.stain(pos, size) / BLOOD.cocoon(p) → mesh / BLOOD.update(dt)
-   Look: orange hoodie, yellow backpack, jeans, white sneakers. ONE mesh per person: every part hangs on a joint (LimbBatch).
+   Look (ชัยภัทร, 178 cm): slim young Thai man, black curtain-fringe hair (middle part), red graduation gown (open front, wide
+   sleeves with black + gold cuffs, gold front bands, small gold pin), white shirt, black trousers, dark shoes.
+   ONE mesh per person: every part hangs on a joint (LimbBatch). HUMAN_GLASSES = thin black rectangular glasses.
    ===================================================================== */
+const HUMAN_GLASSES = false;
+const HUM_PY = 1.01;   // pelvis joint height when standing (legs .45 + .43 + foot): head top ≈ 1.78
 
 // ---------- geometry kit: vertex-coloured parts ----------
 const HGEO = (() => {
@@ -24,53 +28,79 @@ const HGEO = (() => {
     list.forEach(g => { for (const i of g.index.array) I[o++] = i + v; v += g.attributes.position.count; });
     G.setIndex(new THREE.BufferAttribute(I, 1)); return G; }
   const ell = (rx, ry, rz, x, y, z, w = 10, h = 8) => new THREE.SphereGeometry(1, w, h).scale(rx, ry, rz).translate(x, y, z);
+  const bx = (sx, sy, sz, x, y, z, col) => paint(new THREE.BoxGeometry(sx, sy, sz).translate(x, y, z), col);
   // limb hanging DOWN from its joint: radius r0 → r1, rounded ends
   function capsule(r0, r1, len, seg = 8) { const pts = [];
     for (let i = 0; i <= 3; i++) { const a = -Math.PI / 2 + i / 3 * Math.PI / 2; pts.push(new V2(Math.max(1e-4, Math.cos(a) * r1), -len + Math.sin(a) * r1)); }
     for (let i = 0; i <= 3; i++) { const a = i / 3 * Math.PI / 2; pts.push(new V2(Math.max(1e-4, Math.cos(a) * r0), Math.sin(a) * r0)); }
     return new THREE.LatheGeometry(pts, seg); }
-  // lathe through [radius, y] points, squashed front-to-back by sz
-  const lathe = (keys, sz, seg = 12) => new THREE.LatheGeometry(keys.map(([r, y]) => new V2(Math.max(1e-4, r), y)), seg).scale(1, 1, sz);
-  const PAL = { skin: 0xc58a64, skinD: 0xa4694a, hair: 0x17110e, hood: 0xff5a24, hoodD: 0xcc3d18, hoodL: 0xfff1de, jean: 0x2c4f86, jeanD: 0x1f3862, jeanL: 0x5f82b4,
-    shoe: 0xf4f2ec, sole: 0xcfc8b8, shoeR: 0xe23a2a, pack: 0xf7c22c, packD: 0xc28d12, strap: 0x2b2d35, eye: 0x0d0907, mouth: 0x3a0b0b };
+  // lathe through [radius, y] points, squashed front-to-back by sz; optional open front (gap = half-angle of the opening)
+  const lathe = (keys, sz, seg = 12, gap = 0) => new THREE.LatheGeometry(keys.map(([r, y]) => new V2(Math.max(1e-4, r), y)), seg, gap, Math.PI * 2 - 2 * gap).scale(1, 1, sz);
+  const PAL = { skin: 0xd9a47c, skinD: 0xbd8763, hair: 0x0c0908, gown: 0xb8141b, gownD: 0x86100f, gold: 0xe2ad35, band: 0x121010, shirt: 0xf2f0ea,
+    pant: 0x16161a, pantL: 0x24242a, shoe: 0x1a1614, sole: 0x2e2825, eyeW: 0xe6e0d6, eye: 0x0f0a08, brow: 0x120d0b, lip: 0x9c5c50, mouth: 0x4a1714 };
   // widen the shoulders of a torso lathe (a V shape instead of a barrel)
   const broad = g => { const P = g.attributes.position; for (let i = 0; i < P.count; i++) P.setX(i, P.getX(i) * (1 + .1 * sstep(.18, .38, P.getY(i)) - .04 * sstep(.2, 0, P.getY(i)))); g.computeVertexNormals(); return g; };
+  // gown edge: gold facing within `w` radians of the front opening
+  const edgeCol = (gap, w, x, z, base) => { const a = Math.abs(Math.atan2(x, z)); return a < gap + w ? PAL.gold : base; };
   let parts = null;
   // all part geometries are built once and shared (LimbBatch only reads them)
   function build() {
     if (parts) return parts; const K = PAL;
-    // hips (jeans), hangs from the pelvis joint
-    const pelvis = paint(ell(.165, .12, .11, 0, -.03, 0, 12, 8), K.jean);
-    // hoodie (pocket, hood, drawstrings) + backpack + straps + neck
-    const torso = paint(broad(lathe([[0, -.075], [.15, -.07], [.168, -.03], [.172, .1], [.178, .22], [.192, .32], [.19, .38], [.165, .43], [.1, .465], [.05, .478], [0, .482]], .68, 14)),
-      (x, y, z) => y < -.035 ? K.hoodD : (z > .06 && y > .02 && y < .16 && Math.abs(x) < .11) ? (y > .145 || Math.abs(x) > .1 ? K.hoodD : 0xf06020) : K.hood);
-    const hood = paint(new THREE.TorusGeometry(.1, .042, 6, 14).rotateX(Math.PI / 2 - .35).scale(1, 1, 1.15).translate(0, .458, -.02), K.hoodD);
-    const hoodBack = paint(ell(.12, .085, .05, 0, .39, -.135, 10, 6), K.hoodD);
-    const strings = [-1, 1].map(s => paint(new THREE.BoxGeometry(.011, .12, .011).translate(s * .035, .36, .134), K.hoodL));
-    const pack = paint(ell(.135, .165, .07, 0, .22, -.172, 12, 8), (x, y, z) => z < -.215 && y < .2 ? K.packD : K.pack);
-    const straps = [-1, 1].map(s => paint(new THREE.BoxGeometry(.034, .26, .02).rotateX(-.08).translate(s * .1, .3, .133), K.strap));
-    const neck = paint(new THREE.CylinderGeometry(.05, .055, .1, 8).translate(0, .49, 0), K.skinD);
-    const spine = merge([torso, hood, hoodBack, ...strings, pack, ...straps, neck]);
-    // head: one sphere, pushed out above a hairline (high in front, low at the back) = hair, no seams
-    const hg = new THREE.SphereGeometry(1, 16, 12), HP = hg.attributes.position, hairK = new Float32Array(HP.count);
-    for (let i = 0; i < HP.count; i++) { const x = HP.getX(i), y = HP.getY(i), z = HP.getZ(i), line = .12 + .44 * z - .1 * Math.abs(x);
-      const k = sstep(line - .06, line + .06, y), a = Math.atan2(x, z), tuft = .05 * Math.sin(a * 7 + y * 5) * sstep(.2, .9, y);
-      const r = 1 + k * (.1 + .08 * Math.max(0, y) + tuft); HP.setXYZ(i, x * r, y * r, z * r); hairK[i] = k; }
-    hg.computeVertexNormals(); hg.scale(.094, .112, .1).translate(0, .66, .012);
-    let hi = 0; paint(hg, (x, y, z) => hairK[hi++] > .5 ? K.hair : (y < .575 ? K.skinD : K.skin));
-    const face = [ell(.015, .018, .008, -.034, .668, .094, 6, 4), ell(.015, .018, .008, .034, .668, .094, 6, 4)].map(g => paint(g, K.eye));
-    const brows = [-1, 1].map(s => paint(new THREE.BoxGeometry(.034, .008, .012).rotateZ(s * .22).translate(s * .036, .694, .092), K.hair));
-    const nose = paint(ell(.014, .022, .018, 0, .648, .103, 6, 5), K.skinD), ears = [-1, 1].map(s => paint(ell(.014, .028, .018, s * .094, .656, .0, 6, 5), K.skinD));
-    const head = merge([hg, ...face, ...brows, nose, ...ears]).translate(0, -.5, 0);  // pivot = neck top
-    const mouth = paint(ell(.021, .009, .008, 0, 0, 0, 8, 5), K.mouth);
-    // arms (hoodie sleeves, cuffs, hands)
-    const upper = paint(capsule(.062, .052, .27), K.hood);
-    const fore = merge([paint(capsule(.052, .044, .23), (x, y) => y < -.19 ? K.hoodD : K.hood), paint(ell(.026, .068, .044, 0, -.3, .006, 8, 6), K.skin)]);
-    // legs (jeans with a turned-up cuff) and sneakers (white, red heel, pale sole)
-    const thigh = paint(capsule(.096, .068, .43, 10), K.jean);
-    const shin = paint(capsule(.07, .05, .39, 10), (x, y) => y < -.33 ? K.jeanL : K.jean);
-    const shoe = merge([paint(ell(.054, .046, .128, 0, -.02, .04, 10, 7), (x, y, z) => z < -.045 ? K.shoeR : K.shoe), paint(ell(.058, .02, .132, 0, -.052, .04, 10, 5), K.sole)]);
-    return (parts = { pelvis, spine, head, mouth, upper, fore, thigh, shin, shoe });
+    // hips (black trousers), hangs from the pelvis joint; the gown's skirt: upper half on the pelvis, the hem on its own swaying joint
+    const G0 = .42, skirtCol = (x, y, z) => edgeCol(G0, .2, x, z, K.gown);
+    const pelvis = merge([paint(ell(.145, .115, .1, 0, -.03, 0, 12, 8), K.pant),
+      paint(lathe([[.165, .02], [.2, -.15], [.232, -.3]], .82, 26, G0), skirtCol)]);
+    const hem = paint(lathe([[.232, .005], [.262, -.16], [.292, -.31], [.285, -.325]], .82, 26, G0), (x, y, z) => y < -.3 ? K.gownD : skirtCol(x, y, z));
+    // gown body (open over the white shirt), gold facings with a black stripe, yoke band round the neck, small gold pin
+    const torso = paint(broad(lathe([[0, -.075], [.14, -.07], [.158, -.03], [.162, .1], [.168, .22], [.182, .32], [.18, .38], [.155, .425], [.09, .455], [.045, .468], [0, .47]], .68, 32)),
+      (x, y, z) => y < -.035 ? K.gownD : (z > 0 && Math.abs(x) < .05) ? K.shirt : K.gown);
+    const fac = [-1, 1].map(s => [bx(.044, .5, .012, 0, 0, 0, K.gold).rotateY(s * .38).translate(s * .07, .185, .108),
+      bx(.008, .5, .006, 0, 0, 0, K.band).rotateY(s * .38).translate(s * .073, .185, .116)]).flat();
+    const yoke = paint(new THREE.TorusGeometry(.078, .02, 6, 18).rotateX(Math.PI / 2).scale(1.15, 1, 1).translate(0, .44, -.005), K.gold);
+    const collar = paint(new THREE.TorusGeometry(.052, .013, 6, 16).rotateX(Math.PI / 2 - .25).translate(0, .468, .008), K.shirt);
+    const pin = paint(ell(.013, .013, .006, .112, .335, .097, 8, 6), K.gold);
+    const neck = paint(new THREE.CylinderGeometry(.043, .048, .1, 10).translate(0, .47, 0), K.skinD);
+    const spine = merge([torso, ...fac, yoke, collar, pin, neck]);
+    // head (medium poly): slim oval face, defined jaw + cheekbones; black hair = the shell pushed out above the hairline:
+    // thick on top, a middle-parted curtain fringe over the forehead, short at the sides and back
+    const hg = new THREE.SphereGeometry(1, 44, 26), HP = hg.attributes.position, hairK = new Float32Array(HP.count);
+    for (let i = 0; i < HP.count; i++) { let x = HP.getX(i), y = HP.getY(i), z = HP.getZ(i); const ax = Math.abs(x);
+      const front = sstep(.05, .55, z), back = sstep(0, -.5, z);
+      const fr = .22 + .46 * Math.exp(-((x / .3) ** 2)) - .05 * sstep(.35, .7, ax);                       // fringe edge: low over the brows, lifted at the part
+      const line = lerp(lerp(.3, -.5, back), fr, front) + (ax > .8 && z > -.3 ? .05 : 0);               // hairline: fringe / above the ear / nape
+      const k = sstep(line - .05, line + .05, y) * (y > -.7 ? 1 : 0);
+      const part = 1 - .75 * Math.exp(-((x / .09) ** 2)) * sstep(.2, .6, z) * sstep(.3, .75, y);            // the parting line
+      const tuft = .035 * Math.sin(Math.atan2(x, z) * 9 + y * 7) * sstep(.25, .9, y);
+      const th = (.05 + .16 * sstep(.15, .95, y) + .05 * front * sstep(.2, .6, y) + tuft) * part - .025 * sstep(.6, .95, ax) * sstep(.5, 0, y);
+      // face shaping (skin only): narrow jaw + chin, cheekbones, flatter face, rounder back of the head
+      if (y < -.05 && z > -.3) { const j = sstep(-.05, -.95, y); x *= 1 - .3 * j; z *= 1 + .06 * j * sstep(0, .6, z); }
+      x *= 1 + .06 * Math.exp(-(((y + .02) / .2) ** 2)) * sstep(0, .5, z);
+      if (z < 0) z *= 1.06;
+      const r = 1 + k * th; HP.setXYZ(i, x * r, y * r, z * r); hairK[i] = k; }
+    hg.computeVertexNormals(); hg.scale(.086, .112, .098).translate(0, .135, .012);
+    const cH = new THREE.Color(K.hair), cS = new THREE.Color(K.skin), cJ = new THREE.Color(0xcd9771); let hi = 0;   // soft hairline: blend, no stair steps
+    paint(hg, (x, y, z) => (y < .052 ? cJ : cS).clone().lerp(cH, sstep(.2, .8, hairK[hi++])));
+    // face: straight dark brows, monolid eyes (white + dark iris + lash line), small nose, ears
+    const EY = .141, eyes = [-1, 1].map(s => [paint(ell(.0165, .0068, .006, s * .033, EY, .1, 10, 6), K.eyeW), paint(ell(.0072, .0068, .004, s * .033, EY - .0005, .1045, 8, 6), K.eye),
+      bx(.036, .0035, .006, s * .033, EY + .0068, .1015, K.brow).rotateZ(0)]).flat();
+    const brows = [-1, 1].map(s => bx(.036, .0075, .01, s * .035, .162, .1, K.brow));
+    const nose = paint(ell(.0085, .016, .011, 0, .121, .104, 8, 6), 0xcf9a74), ears = [-1, 1].map(s => paint(ell(.012, .026, .016, s * .088, .133, .004, 6, 5), K.skinD));
+    const lips = paint(ell(.02, .0045, .006, 0, .082, .097, 8, 5), K.lip);
+    const glass = !HUMAN_GLASSES ? [] : [-1, 1].map(s => [bx(.034, .003, .004, s * .035, EY + .014, .112, K.band), bx(.034, .003, .004, s * .035, EY - .012, .112, K.band),
+      bx(.003, .026, .004, s * .052, EY + .001, .11, K.band), bx(.003, .026, .004, s * .018, EY + .001, .113, K.band), bx(.003, .003, .1, s * .086, EY + .012, .06, K.band)]).flat()
+      .concat([bx(.016, .003, .004, 0, EY + .01, .114, K.band)]);
+    const head = merge([hg, ...eyes, ...brows, nose, ...ears, lips, ...glass]);  // pivot = neck top
+    const mouth = paint(ell(.017, .006, .006, 0, 0, 0, 8, 5), K.mouth);
+    // arms: gown sleeves (wide bell below the elbow, black + gold stripes at the cuff), hands
+    const upper = paint(capsule(.056, .052, .27), K.gown);
+    const fore = merge([paint(lathe([[.058, .02], [.068, -.08], [.09, -.185], [.092, -.186], [.097, -.205], [.0975, -.206], [.101, -.222], [.1015, -.223], [.108, -.255], [.104, -.262]], 1, 16),
+      (x, y) => y > -.1855 ? K.gown : y > -.2055 ? K.gold : y > -.2225 ? K.band : K.gold), paint(ell(.026, .066, .042, 0, -.3, .006, 8, 6), K.skin),
+      paint(capsule(.034, .03, .14, 6).translate(0, -.12, 0), K.shirt)]);
+    // legs: black trousers, dark shoes
+    const thigh = paint(capsule(.085, .065, .45, 10), K.pant);
+    const shin = paint(capsule(.065, .049, .43, 10), (x, y) => y < -.39 ? K.pantL : K.pant);
+    const shoe = merge([paint(ell(.05, .042, .125, 0, -.022, .04, 10, 7), K.shoe), paint(ell(.054, .018, .128, 0, -.054, .04, 10, 5), K.sole)]);
+    return (parts = { pelvis, hem, spine, head, mouth, upper, fore, thigh, shin, shoe });
   }
   return { build, merge };
 })();
@@ -83,19 +113,20 @@ const streetLift = (x, z) => { const inX = x > -58.5 && x < 58.5;
 
 // ---------- the person ----------
 PREY_KINDS.human = (p, g) => {
-  const G = HGEO.build(), mat = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .78, metalness: 0 }), .4);
+  const G = HGEO.build(), mat = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: 0, side: THREE.DoubleSide }), .4);   // double-sided: open gown + sleeves
   const batch = new LimbBatch(g, mat), J = {};
   const joint = (par, x, y, z, geo) => { const j = new THREE.Group(); j.position.set(x, y, z); par.add(j); if (geo) batch.add(j, geo); return j; };
   J.hold = joint(g, 0, 0, 0);  // pivot used when he is caught (moves his waist into the fangs)
-  J.pelvis = joint(J.hold, 0, .95, 0, G.pelvis);
+  J.pelvis = joint(J.hold, 0, HUM_PY, 0, G.pelvis);
+  J.hem = joint(J.pelvis, 0, -.3, 0, G.hem);  // lower gown: sways and flares back when he runs
   J.spine = joint(J.pelvis, 0, .045, 0, G.spine);
-  J.neck = joint(J.spine, 0, .485, 0, G.head);  // head pivots at the top of the neck
-  J.mouth = joint(J.neck, 0, .102, .097, G.mouth);
+  J.neck = joint(J.spine, 0, .455, 0, G.head);  // head pivots at the top of the neck
+  J.mouth = joint(J.neck, 0, .082, .097, G.mouth);
   J.sh = []; J.el = []; J.hip = []; J.knee = []; J.ank = [];
   [1, -1].forEach(s => {  // s = +1 his left (+x), -1 his right
-    J.sh.push(joint(J.spine, s * .222, .4, -.005, G.upper)); J.el.push(joint(J.sh[J.sh.length - 1], 0, -.27, 0, G.fore));
-    J.hip.push(joint(J.pelvis, s * .092, -.06, 0, G.thigh)); J.knee.push(joint(J.hip[J.hip.length - 1], 0, -.43, 0, G.shin));
-    J.ank.push(joint(J.knee[J.knee.length - 1], 0, -.39, 0, G.shoe));
+    J.sh.push(joint(J.spine, s * .195, .395, -.005, G.upper)); J.el.push(joint(J.sh[J.sh.length - 1], 0, -.27, 0, G.fore));
+    J.hip.push(joint(J.pelvis, s * .085, -.06, 0, G.thigh)); J.knee.push(joint(J.hip[J.hip.length - 1], 0, -.45, 0, G.shin));
+    J.ank.push(joint(J.knee[J.knee.length - 1], 0, -.43, 0, G.shoe));
   });
   batch.build(); p.limbs = batch;
   p.hum = { j: J, t: rand(0, 9), ph: rand(0, 6.3), v: 0, run: 0, lookT: rand(1, 3), lookD: 0, lookS: 1, look: 0, roll: 0, pf: null, holdK: 0, fl: 0 };
@@ -119,7 +150,9 @@ function humanRig(p, dt, v) {
   const fl = H.fl, br = Math.sin(H.t * 1.7), idle = (1 - mov) * (1 - hk);
   // --- pelvis: bob (twice per stride), hip twist, weight shift when idle, lower + tipped forward in a sprint
   const bob = mov * (.018 + .03 * run) * Math.cos(2 * H.ph) - run * .05 - (pan > .5 && sv < .3 && !held ? .12 : 0);
-  J.pelvis.position.set(idle * .018 * Math.sin(H.t * .5), .95 + bob * (1 - hk), 0);
+  J.pelvis.position.set(idle * .018 * Math.sin(H.t * .5), HUM_PY + bob * (1 - hk), 0);
+  // gown hem: swings with the stride, flares back in a sprint, hangs straight when he is caught
+  J.hem.rotation.set(-(.32 * run + .07 * mov * Math.sin(2 * H.ph) + .05 * sstep(1, 6, sv)) * (1 - hk) + .15 * hk, 0, .06 * Math.sin(H.ph) * mov * (1 - hk));
   J.pelvis.rotation.set(.12 * run * (1 - hk), -.14 * Math.sin(H.ph) * mov * (1 - .4 * run), idle * .03 * Math.sin(H.t * .5));
   // glance back over the shoulder now and then while fleeing (or look around while strolling)
   H.lookT -= dt;
@@ -135,7 +168,7 @@ function humanRig(p, dt, v) {
   J.neck.rotation.set(((-lean * .75 + hb) * (1 - hk) + hk * (-.5 * fk + .45 * (1 - fk))) * nw, (H.look + idle * .45 * Math.sin(H.t * .37) * Math.sin(H.t * .23) + hk * .6 * fk * Math.sin(fl * .6)) * nw, 0);
   // mouth: open when scared or screaming in the fangs
   const open = held ? .4 + 2.8 * fk * (.6 + .4 * Math.sin(fl * 1.3)) : pan * (1.2 + .5 * Math.sin(H.t * 9));
-  J.mouth.scale.set(1 - .15 * open / 3, 1 + open, 1);
+  J.mouth.scale.set(1 - .15 * open / 3, 1 + open * 1.3, 1);
   for (let i = 0; i < 2; i++) {
     const s = i ? -1 : 1, ph = H.ph + (i ? Math.PI : 0), sw = Math.sin(ph);
     // legs: walk ↔ run blend (F = thigh swing forward, K = knee bend)

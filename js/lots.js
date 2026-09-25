@@ -34,6 +34,13 @@ const LOTS = [
   { kind: 'kiosk', x: 25, z: 24.5, w: 5.6, d: 5.6, rot: LOT_W, col: '#cdb896', sign: 2 },
   { kind: 'corner', x: 14, z: 20, w: 4.8, d: 4.8, col: '#706f6a', garden: 1 },
   { kind: 'lantern', x: -4, z: 34, w: 5.8, d: 2.8, col: '#77756d', garden: 1 },
+  // more town (existing kinds only). All low (h ≤ ~8.5: a kaiju steps onto them) and ≥ 12 apart, so no street or path gets closed
+  { kind: 'store', x: -6, z: -11, w: 12, d: 8.6, rot: Math.PI, col: '#d2cfc4' },             // second convenience store, faces the back street
+  { kind: 'shed', x: -30, z: -12.5, w: 8, d: 5, rot: Math.PI, hh: 3.6, col: '#8b8f8c' },       // low: the log leaves no way round, so a mid-size spider must pass in front
+  { kind: 'shed', x: -56, z: -12.8, w: 6, d: 5, rot: LOT_W, hh: 3.2, col: '#7f8784' },
+  { kind: 'kiosk', x: -40, z: 27.5, w: 5.6, d: 5.6, col: '#c9b594', sign: 3, garden: 1 },
+  { kind: 'kiosk', x: 16, z: 37, w: 5.6, d: 5.6, rot: LOT_W, col: '#bfae90', sign: 4 },
+  { kind: 'shed', x: -53, z: 36.5, w: 7, d: 5, hh: 3.2, col: '#8a8d8a', garden: 1 },
 ];
 // (x, z) within pad of a lot's footprint (same rotation convention as Object3D.rotation.y)
 function lotInside(x, z, pad) {
