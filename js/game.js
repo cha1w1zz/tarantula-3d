@@ -286,6 +286,7 @@ function drive(dt, target, maxSpeed) {
   let v = maxSpeed * face * clamp(d / (L * .8), .2, 1);
   const ahead = groundY(sp.pos.x + fwd.x * L * .3, sp.pos.z + fwd.z * L * .3) - groundY(sp.pos.x, sp.pos.z);
   v *= clamp(1 - ahead / (L * .3) * .6, .4, 1.1);            // climbing a rock is slower than walking on soil
+  v *= clamp(1 - (sp.climbLag || 0) * 7, .15, 1);           // stepping up onto a roof: wait for the body to rise with the legs
   const des = fwd.multiplyScalar(v);
   obstaclesFor(L).forEach(o => { const ox = sp.pos.x - o.x, oz = sp.pos.z - o.z, od = Math.hypot(ox, oz) || 1, R = o.r + L * .35;
     if (od < R + L * .4) { const push = (R + L * .4 - od) / (L * .4), side = Math.sign(ox * dz - oz * dx) || 1;
