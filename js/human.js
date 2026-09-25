@@ -43,6 +43,39 @@ const HGEO = (() => {
   // gown edge: gold facing within `w` radians of the front opening
   const edgeCol = (gap, w, x, z, base) => { const a = Math.abs(Math.atan2(x, z)); return a < gap + w ? PAL.gold : base; };
   let parts = null;
+  // head (medium poly) for either person: o.hair 'curtain' (ชัยภัทร) | 'spiky' (ตุ้ย: short, messy spiky top, short sides), o.skin tones
+  function headGeo(o) { const K = Object.assign({}, PAL, o.pal || {}), spiky = o.hair === 'spiky';
+    // head (medium poly): slim oval face, defined jaw + cheekbones; black hair = the shell pushed out above the hairline:
+    // thick on top, a middle-parted curtain fringe over the forehead, short at the sides and back
+    const hg = new THREE.SphereGeometry(1, 44, 26), HP = hg.attributes.position, hairK = new Float32Array(HP.count);
+    for (let i = 0; i < HP.count; i++) { let x = HP.getX(i), y = HP.getY(i), z = HP.getZ(i); const ax = Math.abs(x);
+      const front = sstep(.05, .55, z), back = sstep(0, -.5, z);
+      const fr = spiky ? .5 + .06 * Math.sin(x * 23) - .08 * sstep(.4, .75, ax) : .22 + .46 * Math.exp(-((x / .3) ** 2)) - .05 * sstep(.35, .7, ax);                       // fringe edge: low over the brows, lifted at the part
+      const line = lerp(lerp(.3, -.5, back), fr, front) + (ax > .8 && z > -.3 ? .05 : 0);               // hairline: fringe / above the ear / nape
+      const k = sstep(line - .05, line + .05, y) * (y > -.7 ? 1 : 0);
+      const part = spiky ? 1 : 1 - .75 * Math.exp(-((x / .09) ** 2)) * sstep(.2, .6, z) * sstep(.3, .75, y);            // the parting line
+      const tuft = spiky ? .1 * Math.max(0, Math.sin(Math.atan2(x, z) * 8 + y * 11) * Math.sin(x * 14 + z * 10 + 1)) * sstep(.35, .95, y) + .03 * Math.sin(Math.atan2(x, z) * 17) * sstep(.2, .8, y)
+        : .035 * Math.sin(Math.atan2(x, z) * 9 + y * 7) * sstep(.25, .9, y);
+      const th = spiky ? (.025 + .12 * sstep(.2, .95, y) + .04 * front * sstep(.35, .7, y) + tuft) - .015 * sstep(.6, .95, ax) * sstep(.5, 0, y)
+        : (.05 + .16 * sstep(.15, .95, y) + .05 * front * sstep(.2, .6, y) + tuft) * part - .025 * sstep(.6, .95, ax) * sstep(.5, 0, y);
+      // face shaping (skin only): narrow jaw + chin, cheekbones, flatter face, rounder back of the head
+      if (y < -.05 && z > -.3) { const j = sstep(-.05, -.95, y); x *= 1 - .3 * j; z *= 1 + .06 * j * sstep(0, .6, z); }
+      x *= 1 + .06 * Math.exp(-(((y + .02) / .2) ** 2)) * sstep(0, .5, z);
+      if (z < 0) z *= 1.06;
+      const r = 1 + k * th; HP.setXYZ(i, x * r, y * r, z * r); hairK[i] = k; }
+    hg.computeVertexNormals(); hg.scale(.086, .112, .098).translate(0, .135, .012);
+    const cH = new THREE.Color(K.hair), cS = new THREE.Color(K.skin), cJ = new THREE.Color(K.jaw || 0xcd9771); let hi = 0;   // soft hairline: blend, no stair steps
+    paint(hg, (x, y, z) => (y < .052 ? cJ : cS).clone().lerp(cH, sstep(.2, .8, hairK[hi++])));
+    // face: straight dark brows, monolid eyes (white + dark iris + lash line), small nose, ears
+    const EY = .141, eyes = [-1, 1].map(s => [paint(ell(.0165, .0068, .006, s * .033, EY, .1, 10, 6), K.eyeW), paint(ell(.0072, .0068, .004, s * .033, EY - .0005, .1045, 8, 6), K.eye),
+      bx(.036, .0035, .006, s * .033, EY + .0068, .1015, K.brow).rotateZ(0)]).flat();
+    const brows = [-1, 1].map(s => bx(.036, .0075, .01, s * .035, .162, .1, K.brow));
+    const nose = paint(ell(.0085 * (o.noseW || 1), .016, .011, 0, .121, .104, 8, 6), K.nose || 0xcf9a74), ears = [-1, 1].map(s => paint(ell(.012, .026, .016, s * .088, .133, .004, 6, 5), K.skinD));
+    const lips = paint(ell(.02, .0045, .006, 0, .082, .097, 8, 5), K.lip);
+    const glass = !HUMAN_GLASSES ? [] : [-1, 1].map(s => [bx(.034, .003, .004, s * .035, EY + .014, .112, K.band), bx(.034, .003, .004, s * .035, EY - .012, .112, K.band),
+      bx(.003, .026, .004, s * .052, EY + .001, .11, K.band), bx(.003, .026, .004, s * .018, EY + .001, .113, K.band), bx(.003, .003, .1, s * .086, EY + .012, .06, K.band)]).flat()
+      .concat([bx(.016, .003, .004, 0, EY + .01, .114, K.band)]);
+    return merge([hg, ...eyes, ...brows, nose, ...ears, lips, ...glass]); }
   // all part geometries are built once and shared (LimbBatch only reads them)
   function build() {
     if (parts) return parts; const K = PAL;
@@ -61,35 +94,7 @@ const HGEO = (() => {
     const pin = paint(ell(.013, .013, .006, .112, .335, .097, 8, 6), K.gold);
     const neck = paint(new THREE.CylinderGeometry(.043, .048, .1, 10).translate(0, .47, 0), K.skinD);
     const spine = merge([torso, ...fac, yoke, collar, pin, neck]);
-    // head (medium poly): slim oval face, defined jaw + cheekbones; black hair = the shell pushed out above the hairline:
-    // thick on top, a middle-parted curtain fringe over the forehead, short at the sides and back
-    const hg = new THREE.SphereGeometry(1, 44, 26), HP = hg.attributes.position, hairK = new Float32Array(HP.count);
-    for (let i = 0; i < HP.count; i++) { let x = HP.getX(i), y = HP.getY(i), z = HP.getZ(i); const ax = Math.abs(x);
-      const front = sstep(.05, .55, z), back = sstep(0, -.5, z);
-      const fr = .22 + .46 * Math.exp(-((x / .3) ** 2)) - .05 * sstep(.35, .7, ax);                       // fringe edge: low over the brows, lifted at the part
-      const line = lerp(lerp(.3, -.5, back), fr, front) + (ax > .8 && z > -.3 ? .05 : 0);               // hairline: fringe / above the ear / nape
-      const k = sstep(line - .05, line + .05, y) * (y > -.7 ? 1 : 0);
-      const part = 1 - .75 * Math.exp(-((x / .09) ** 2)) * sstep(.2, .6, z) * sstep(.3, .75, y);            // the parting line
-      const tuft = .035 * Math.sin(Math.atan2(x, z) * 9 + y * 7) * sstep(.25, .9, y);
-      const th = (.05 + .16 * sstep(.15, .95, y) + .05 * front * sstep(.2, .6, y) + tuft) * part - .025 * sstep(.6, .95, ax) * sstep(.5, 0, y);
-      // face shaping (skin only): narrow jaw + chin, cheekbones, flatter face, rounder back of the head
-      if (y < -.05 && z > -.3) { const j = sstep(-.05, -.95, y); x *= 1 - .3 * j; z *= 1 + .06 * j * sstep(0, .6, z); }
-      x *= 1 + .06 * Math.exp(-(((y + .02) / .2) ** 2)) * sstep(0, .5, z);
-      if (z < 0) z *= 1.06;
-      const r = 1 + k * th; HP.setXYZ(i, x * r, y * r, z * r); hairK[i] = k; }
-    hg.computeVertexNormals(); hg.scale(.086, .112, .098).translate(0, .135, .012);
-    const cH = new THREE.Color(K.hair), cS = new THREE.Color(K.skin), cJ = new THREE.Color(0xcd9771); let hi = 0;   // soft hairline: blend, no stair steps
-    paint(hg, (x, y, z) => (y < .052 ? cJ : cS).clone().lerp(cH, sstep(.2, .8, hairK[hi++])));
-    // face: straight dark brows, monolid eyes (white + dark iris + lash line), small nose, ears
-    const EY = .141, eyes = [-1, 1].map(s => [paint(ell(.0165, .0068, .006, s * .033, EY, .1, 10, 6), K.eyeW), paint(ell(.0072, .0068, .004, s * .033, EY - .0005, .1045, 8, 6), K.eye),
-      bx(.036, .0035, .006, s * .033, EY + .0068, .1015, K.brow).rotateZ(0)]).flat();
-    const brows = [-1, 1].map(s => bx(.036, .0075, .01, s * .035, .162, .1, K.brow));
-    const nose = paint(ell(.0085, .016, .011, 0, .121, .104, 8, 6), 0xcf9a74), ears = [-1, 1].map(s => paint(ell(.012, .026, .016, s * .088, .133, .004, 6, 5), K.skinD));
-    const lips = paint(ell(.02, .0045, .006, 0, .082, .097, 8, 5), K.lip);
-    const glass = !HUMAN_GLASSES ? [] : [-1, 1].map(s => [bx(.034, .003, .004, s * .035, EY + .014, .112, K.band), bx(.034, .003, .004, s * .035, EY - .012, .112, K.band),
-      bx(.003, .026, .004, s * .052, EY + .001, .11, K.band), bx(.003, .026, .004, s * .018, EY + .001, .113, K.band), bx(.003, .003, .1, s * .086, EY + .012, .06, K.band)]).flat()
-      .concat([bx(.016, .003, .004, 0, EY + .01, .114, K.band)]);
-    const head = merge([hg, ...eyes, ...brows, nose, ...ears, lips, ...glass]);  // pivot = neck top
+    const head = headGeo({});  // pivot = neck top
     const mouth = paint(ell(.017, .006, .006, 0, 0, 0, 8, 5), K.mouth);
     // arms: gown sleeves (wide bell below the elbow, black + gold stripes at the cuff), hands
     const upper = paint(capsule(.056, .052, .27), K.gown);
@@ -102,7 +107,30 @@ const HGEO = (() => {
     const shoe = merge([paint(ell(.05, .042, .125, 0, -.022, .04, 10, 7), K.shoe), paint(ell(.054, .018, .128, 0, -.054, .04, 10, 5), K.sole)]);
     return (parts = { pelvis, hem, spine, head, mouth, upper, fore, thigh, shin, shoe });
   }
-  return { build, merge };
+  // ตุ้ย (170 cm, slim, narrow shoulders): short-sleeve white-blue Thai school shirt (collar, buttons, pocket on his left,
+  // emblem + blue name on his right chest), black-navy trousers, black sneakers
+  let tui = null;
+  function buildTui() {
+    if (tui) return tui; const K = Object.assign({}, PAL, { skin: 0xc28a62, skinD: 0xa87450, shirt: 0xdfe6f2, shirtD: 0xc4cde0, pant: 0x16171f, pantL: 0x20222c, shoe: 0x121214, sole: 0x2a2a2e, lip: 0x9a5a52 });
+    const pelvis = merge([paint(ell(.135, .11, .095, 0, -.03, 0, 12, 8), K.pant), paint(new THREE.TorusGeometry(.128, .012, 5, 20).rotateX(Math.PI / 2).scale(1, 1, .72).translate(0, .035, 0), 0x0c0c0e)]);
+    const torso = paint(lathe([[0, -.075], [.128, -.07], [.142, -.03], [.145, .1], [.15, .22], [.16, .32], [.158, .38], [.138, .425], [.08, .455], [.042, .468], [0, .47]], .66, 28),
+      (x, y, z) => y < -.035 ? K.shirtD : K.shirt);
+    const btn = [.05, .14, .23, .32].map(y => paint(ell(.007, .007, .004, 0, y, .104, 6, 4), 0xf4f4f6));
+    const placket = bx(.018, .5, .004, 0, .2, .101, K.shirtD);
+    const pocket = bx(.075, .085, .006, .062, .26, .098, K.shirtD), emblem = paint(ell(.016, .019, .005, -.062, .325, .1, 8, 6), 0xc9a23a), name = bx(.06, .012, .005, -.066, .295, .1, 0x2849a8);
+    const collar = [-1, 1].map(s => bx(.07, .045, .01, 0, 0, 0, K.shirt).rotateZ(s * .55).rotateY(s * .5).translate(s * .045, .445, .06));
+    const neck = paint(new THREE.CylinderGeometry(.04, .045, .1, 10).translate(0, .47, 0), K.skinD);
+    const spine = merge([torso, ...btn, placket, pocket, emblem, name, ...collar, neck]);
+    const head = headGeo({ hair: 'spiky', pal: { skin: K.skin, skinD: K.skinD, lip: K.lip, jaw: 0xb88158, nose: 0xbb8660 }, noseW: 1.25 });
+    const mouth = paint(ell(.017, .006, .006, 0, 0, 0, 8, 5), K.mouth);
+    const upper = merge([paint(lathe([[.064, .03], [.068, -.05], [.066, -.15], [.062, -.152]], 1, 12), K.shirt), paint(capsule(.042, .038, .27), K.skin)]);
+    const fore = merge([paint(capsule(.036, .03, .23, 8), K.skin), paint(ell(.026, .064, .04, 0, -.29, .006, 8, 6), K.skin)]);
+    const thigh = paint(capsule(.078, .06, .45, 10), K.pant);
+    const shin = paint(capsule(.06, .046, .43, 10), K.pant);
+    const shoe = merge([paint(ell(.05, .044, .125, 0, -.022, .04, 10, 7), K.shoe), paint(ell(.054, .02, .128, 0, -.056, .04, 10, 5), K.sole)]);
+    return (tui = { pelvis, hem: null, spine, head, mouth, upper, fore, thigh, shin, shoe });
+  }
+  return { build: who => who === 'tui' ? buildTui() : build(), merge };
 })();
 
 // the town's asphalt / curb strips sit a little above the soil that groundY() returns (city.js strip(): +.07 / +.2)
@@ -113,11 +141,11 @@ const streetLift = (x, z) => { const inX = x > -58.5 && x < 58.5;
 
 // ---------- the person ----------
 PREY_KINDS.human = (p, g) => {
-  const G = HGEO.build(), mat = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: 0, side: THREE.DoubleSide }), .4);   // double-sided: open gown + sleeves
+  const G = HGEO.build(p.who), mat = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .72, metalness: 0, side: THREE.DoubleSide }), .4);   // double-sided: open gown + sleeves
   const batch = new LimbBatch(g, mat), J = {};
   const joint = (par, x, y, z, geo) => { const j = new THREE.Group(); j.position.set(x, y, z); par.add(j); if (geo) batch.add(j, geo); return j; };
   J.hold = joint(g, 0, 0, 0);  // pivot used when he is caught (moves his waist into the fangs)
-  J.pelvis = joint(J.hold, 0, HUM_PY, 0, G.pelvis);
+  J.pelvis = joint(J.hold, 0, HUM_PY, 0, G.pelvis); if (p.who === 'tui') J.hold.scale.setScalar(1.70 / 1.78);   // ตุ้ย is 170 cm
   J.hem = joint(J.pelvis, 0, -.3, 0, G.hem);  // lower gown: sways and flares back when he runs
   J.spine = joint(J.pelvis, 0, .045, 0, G.spine);
   J.neck = joint(J.spine, 0, .455, 0, G.head);  // head pivots at the top of the neck
@@ -128,10 +156,15 @@ PREY_KINDS.human = (p, g) => {
     J.hip.push(joint(J.pelvis, s * .085, -.06, 0, G.thigh)); J.knee.push(joint(J.hip[J.hip.length - 1], 0, -.45, 0, G.shin));
     J.ank.push(joint(J.knee[J.knee.length - 1], 0, -.43, 0, G.shoe));
   });
+  // snack in his right hand (onigiri: white rice, nori band), part of the same batched mesh; shrunk to nothing unless he is eating
+  const fg = new THREE.CylinderGeometry(.05, .05, .032, 3).rotateX(Math.PI / 2).rotateZ(Math.PI / 2), fp = fg.attributes.position, fc = new Float32Array(fp.count * 3);
+  for (let i = 0; i < fp.count; i++) fc.set(fp.getY(i) < -.012 ? [.02, .03, .02] : [.9, .88, .82], i * 3);
+  fg.setAttribute('color', new THREE.BufferAttribute(fc, 3)); fg.deleteAttribute('uv');
+  J.food = joint(J.el[1], 0, -.3, .05, fg); J.food.scale.setScalar(.001);
   batch.build(); p.limbs = batch;
   p.hum = { j: J, t: rand(0, 9), ph: rand(0, 6.3), v: 0, run: 0, lookT: rand(1, 3), lookD: 0, lookS: 1, look: 0, roll: 0, pf: null, holdK: 0, fl: 0 };
   p.rig = humanRig;
-  p.speed = 1.4; p.run = HUM.sprint; p.value = 55; p.vib = .45;  // walk ≈ 1.4, sprint ≈ 9.5 (js/survive.js drives him)
+  p.speed = 1.4; p.run = HUM.sprint; p.value = typeof CHASE !== 'undefined' ? CHASE.meal : 24; p.vib = .45;  // walk ≈ 1.4, sprint ≈ 9.5 (js/survive.js drives him)
   BLOOD.warm();  // compile the blood shaders now, not at the moment of the bite
 };
 
@@ -189,6 +222,26 @@ function humanRig(p, dt, v) {
     J.ank[i].rotation.set(clamp((F - K) * .85 + .3 * run * Math.max(0, -sw), -.6, 1) + (held ? .7 * hk : 0), 0, 0);  // caught: toes hang down
     J.sh[i].rotation.set(sx, 0, sz); J.el[i].rotation.set(ex, 0, 0);
   }
+  // eating (snack to mouth ~0.8 s a bite, chew nod, glance round between bites) / drinking at the pond (crouch, cupped hands to mouth)
+  const act = !held && p.acting; H.actK = lerp(H.actK || 0, act ? 1 : 0, clamp(dt * 6, 0, 1)); const ak = H.actK;
+  J.food.scale.setScalar(act === 'eat' && ak > .4 ? 1 : .001);
+  if (act) { H.act = act; H.actT = (H.actT || 0) + dt; } else H.actT = 0;
+  if (ak > .01) { const nv = p.nervous || 0, L = (x, a) => x + (a - x) * ak;
+    if (H.act === 'eat') { const per = .8 * (1 - .3 * nv), c = (H.actT % per) / per, b = sstep(.15, .45, c) * (1 - sstep(.55, .85, c));   // b: 1 = snack at the mouth
+      const g = (1 - b) * Math.sin(H.actT * (2.2 + 2 * nv)) * (.5 + .4 * nv);   // glance around between bites
+      J.sh[1].rotation.set(L(J.sh[1].rotation.x, -.35 - .85 * b), 0, L(J.sh[1].rotation.z, .22 + .22 * b)); J.el[1].rotation.x = L(J.el[1].rotation.x, -1.3 - 1.3 * b);
+      J.sh[0].rotation.set(L(J.sh[0].rotation.x, -.25), 0, L(J.sh[0].rotation.z, -.1)); J.el[0].rotation.x = L(J.el[0].rotation.x, -1.1);
+      J.neck.rotation.x = L(J.neck.rotation.x, .1 * b + .06 * Math.max(0, Math.sin(H.actT * 11)) * (1 - b)); J.neck.rotation.y = L(J.neck.rotation.y, g);
+    } else { const c = (H.actT % 1.1) / 1.1, b = sstep(.3, .6, c) * (1 - sstep(.75, .95, c));   // scoop low, lift to the mouth
+      J.pelvis.position.y = L(J.pelvis.position.y, HUM_PY - .42); J.spine.rotation.x = L(J.spine.rotation.x, .45 - .2 * b);
+      for (let i = 0; i < 2; i++) { J.hip[i].rotation.x = L(J.hip[i].rotation.x, -1.45); J.knee[i].rotation.x = L(J.knee[i].rotation.x, 2.3); J.ank[i].rotation.x = L(J.ank[i].rotation.x, -.75);
+        J.sh[i].rotation.set(L(J.sh[i].rotation.x, -1 + .5 * b), 0, L(J.sh[i].rotation.z, (i ? .3 : -.3))); J.el[i].rotation.x = L(J.el[i].rotation.x, -.5 - 1.7 * b); }
+      J.neck.rotation.x = L(J.neck.rotation.x, .15 - .1 * b); J.neck.rotation.y = L(J.neck.rotation.y, 0); } }
+  // ตุ้ย waiting in cover: arms crossed (like his photo)
+  const cross = p.who === 'tui' && !held && !act && pan < .3 && sv < .25 && (!p.ai || ['hide', 'wait', 'peek'].includes(p.ai.st));
+  H.crossK = lerp(H.crossK || 0, cross ? 1 : 0, clamp(dt * 4, 0, 1));
+  if (H.crossK > .01) { const c = H.crossK, L = (x, a) => x + (a - x) * c;
+    for (let i = 0; i < 2; i++) { const s = i ? -1 : 1; J.sh[i].rotation.set(L(J.sh[i].rotation.x, -.3), L(J.sh[i].rotation.y, -s * .75), L(J.sh[i].rotation.z, -s * .12)); J.el[i].rotation.x = L(J.el[i].rotation.x, i ? -1.95 : -1.75); } }
   if (held) return;
   // on his feet: stay upright (no insect slope pitch / wobble from Prey.update) and lean into turns
   if (H.pf == null) H.pf = p.face;
@@ -200,19 +253,30 @@ function humanRig(p, dt, v) {
 // speech bubbles over his head (the same style as the spider's, blue-white for him, pink + shaking when panicking)
 (() => { const st = document.createElement('style');
   st.textContent = '.say.hum{background:rgba(222,240,255,.96);color:#0b2140}.say.hum::after{border-top-color:rgba(222,240,255,.96)}' +
-    '.say.hum.panic{background:rgba(255,228,220,.97);color:#5a0d06;animation:humShake .12s infinite alternate}.say.hum.panic::after{border-top-color:rgba(255,228,220,.97)}' +
-    '@keyframes humShake{from{margin-left:-2px}to{margin-left:2px}}';
+    '.say.hum.panic{background:rgba(255,228,220,.97);color:#5a0d06}.say.hum.panic::after{border-top-color:rgba(255,228,220,.97)}';
   document.head.appendChild(st); })();
 const humanSay = (() => {
   const LINES = { panic: ['ช่วยด้วย!', 'แมงมุมยักษ์!!', 'อย่ากินผมนะ!', 'หนีเร็ว!', 'แม่จ๋าาา!', 'ใครก็ได้ช่วยที!'], calm: ['เงียบจัง…', 'เมืองนี้ร้างจริง ๆ', 'ได้ยินเสียงอะไรไหม?'], caught: ['อ๊ากกก!!', 'ปล่อยผมนะ!'],
     juke: ['หลบ!', 'ทางนี้!', 'พลาดแล้วเจ้ายักษ์!'], tired: ['ไม่ไหวแล้ว…', 'หอบ…หอบ…', 'ขาจะขาดแล้ว'], phew: ['รอดไปที…', 'เงียบ ๆ ไว้…', 'เกือบไปแล้ว'],
     peek: ['มันยังอยู่แถวนี้…', 'รอก่อน…', 'ยังไม่ปลอดภัย'], hungry: ['หิวจะแย่ ไปหาอะไรกินดีกว่า', 'ท้องร้องแล้ว…'], thirsty: ['คอแห้งมาก…', 'ต้องไปหาน้ำ'],
-    ate: ['อิ่มแล้ว ค่อยมีแรงหน่อย'], drank: ['ชื่นใจ…'], rescue: ['เฮลิคอปเตอร์! ทางนี้!!', 'ผมอยู่นี่!!'] };
-  const LOGGED = { caught: 1, rescue: 1, panic: 1 };   // the rest only show in his bubble (no log spam during a chase)
+    ate: ['อิ่มแล้ว ค่อยมีแรงหน่อย'], drank: ['ชื่นใจ…'], rescue: ['เฮลิคอปเตอร์! ทางนี้!!', 'ผมอยู่นี่!!'],
+    grief: ['ไม่นะ ตุ้ย!!', 'ตุ้ยยย… ขอโทษ ช่วยไม่ได้'], respawn: ['ผม…ยังไม่ตาย?', 'กลับมาแล้ว คราวนี้ไม่พลาดแน่'] };
+  // ตุ้ย: terrified of everything, but talks like an edgy anime hero who is also a programmer
+  const TUI = { panic: ['ระบบป้องกันขั้นสุดท้าย… เปิดใช้งาน! (ขาสั่นมาก)', 'try { วิ่ง } catch (แมงมุม) { ร้องไห้ }', 'บั๊กตัวนี้ใหญ่เกิน debug ไม่ไหวแล้ว!!', 'แม่ครับ ผม push ขึ้น production ไม่ทันแล้ว!!'],
+    calm: ['ข้าคือ root ของเมืองนี้… ขอ sudo หนีหน่อย', 'เงียบ… เงียบเกินไป เหมือนก่อน server ล่ม', 'อะ อะไรขยับน่ะ!? …ใบไม้เอง'],
+    caught: ['Segmentation fault!! อ๊ากก!', 'kill -9 ไม่ได้ผลลล!'], juke: ['หลบ! ด้วย reflex ระดับ 60 fps!', 'ctrl+z!!'],
+    tired: ['RAM เต็มแล้ว… ขาค้าง…', 'แบตเหลือ 1%…'], phew: ['รอด… exit code 0… (ยังสั่นอยู่)', 'ฮึ่ม ข้าแค่ถอยทางยุทธศาสตร์เท่านั้น'],
+    peek: ['สแกนพื้นที่… มันยังอยู่! ขอ timeout ก่อน', 'ping แมงมุม… ได้ reply ใกล้มาก!!'], hungry: ['พลังงานต่ำ ต้อง recharge ด้วยข้าวปั้น…'], thirsty: ['ระบบระบายความร้อนต้องการน้ำ…'],
+    ate: ['อิ่ม… buff พลัง +10 (มือยังสั่น)'], drank: ['คูลลิ่งกลับมาทำงานแล้ว'], rescue: ['deploy สำเร็จ!! ช่วยด้วยยย ทางนี้!!'],
+    grief: ['ชัยภัทร!! ไม่นะ… commit สุดท้ายของเขา…', 'ข้าจะ… จะแก้แค้น… (หลบก่อน)'], respawn: ['reboot สำเร็จ… ข้ากลับมาแล้ว (ขาสั่น)'] };
+  const LOGGED = { caught: 1, rescue: 1, panic: 1, grief: 1 };   // the rest only show in his bubble (no log spam during a chase)
   const GAP = { panic: 6, juke: 7, tired: 14, peek: 9, hungry: 20, thirsty: 20, calm: 15 };   // per-line-kind wait: no rapid-fire repeats while he runs
-  return (p, cat, force) => { const L = LINES[cat], cd = p.catCD || (p.catCD = {}), now = performance.now() / 1000;
-    if (!L || (!force && cat !== 'caught' && (p.sayCD > 0 || (cd[cat] || 0) > now))) return; p.sayCD = 2.5; cd[cat] = now + (GAP[cat] || 0);
-    const t = L[Math.random() * L.length | 0]; p.sayTxt = `ชัยภัทร: ${t}`; p.sayT = 2.6; p.sayCat = cat; if (LOGGED[cat]) log(`<i>ชัยภัทร:</i> “${t}”`, 'say'); };
+  const HIGH = { caught: 1, rescue: 1, grief: 1, respawn: 1 };   // the one NOT being chased only says these (two people don't flood the screen)
+  return (p, cat, force) => { const L = (p.who === 'tui' ? TUI : LINES)[cat], cd = p.catCD || (p.catCD = {}), now = performance.now() / 1000;
+    if (!L || (!force && cat !== 'caught' && (p.sayCD > 0 || (cd[cat] || 0) > now))) return;
+    if (!HIGH[cat] && spider && spider.prey && spider.prey !== p && spider.prey.kind === 'human' && !spider.prey.eaten && ['hunt', 'strike', 'eat'].includes(spider.mode)) return;
+    p.sayCD = 2.5; cd[cat] = now + (GAP[cat] || 0);
+    const t = L[Math.random() * L.length | 0]; p.sayTxt = `${p.name}: ${t}`; p.sayT = 2.6; p.sayCat = cat; if (LOGGED[cat]) log(`<i>${p.name}:</i> “${t}”`, 'say'); };
 })();
 const _sayV = new V3(), _sayC = new V3();
 // hidden behind a building (camera → head line passes under a roof) or far away = no bubble; checked 6× a second so it doesn't flicker
@@ -228,11 +292,17 @@ function preyTalk(dt) {
     // only on screen (no pinning to the edge: that made it jump around)
     const on = p.sayT > .2 && !p.blk && q.z < 1 && Math.abs(q.x) < .92 && q.y < .9 && q.y > -1 && !document.body.classList.contains('noui');
     el.classList.toggle('on', on); el.classList.toggle('panic', ['panic', 'caught', 'juke', 'tired'].includes(p.sayCat));
-    if (on) { if (el.textContent !== p.sayTxt) el.textContent = p.sayTxt; let x = (q.x * .5 + .5) * innerWidth, y = (-q.y * .5 + .5) * innerHeight;
-      // the spider's bubble is up too and they would overlap: put his under his head instead
-      const sb = document.getElementById('say'); if (sb.classList.contains('on')) { const r = sb.getBoundingClientRect(), w = el.offsetWidth || 180;
-        if (x + w / 2 > r.left && x - w / 2 < r.right && y > r.top - 10 && y - 50 < r.bottom + 10) y = Math.max(y, r.bottom + 60); }
-      el.style.left = clamp(x, 100, innerWidth - 100) + 'px'; el.style.top = y + 'px'; }
+    if (!on) { p.bx = null; return; }
+    if (el.textContent !== p.sayTxt) el.textContent = p.sayTxt;
+    const x = clamp((q.x * .5 + .5) * innerWidth, 100, innerWidth - 100), y = (-q.y * .5 + .5) * innerHeight;
+    // always above his head, following smoothly; overlapping another bubble (spider / the other person) nudges it up or down a little
+    let dy = 0; const w = el.offsetWidth || 180, h = el.offsetHeight || 34;
+    for (const o of [document.getElementById('say'), ...prey.filter(o => o !== p && o.bubble && o.bx != null).map(o => o.bubble)]) { if (!o.classList.contains('on')) continue;
+      const r = o.getBoundingClientRect(), top = y - 12 - h, bot = y - 12;
+      if (x + w / 2 > r.left - 6 && x - w / 2 < r.right + 6 && bot > r.top - 6 && top < r.bottom + 6) dy += y < (r.top + r.bottom) / 2 + h / 2 ? -Math.min(bot - r.top + 6, 60) : Math.min(r.bottom - top + 6, 60); }
+    p.ody = lerp(p.ody || 0, dy, clamp(dt * 6, 0, 1));
+    if (p.bx == null) { p.bx = x; p.by = y; } const k = clamp(dt * 14, 0, 1); p.bx = lerp(p.bx, x, k); p.by = lerp(p.by, y, k);
+    el.style.left = p.bx + 'px'; el.style.top = Math.max(50, p.by + p.ody) + 'px';
   });
 }
 

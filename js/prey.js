@@ -220,10 +220,10 @@ function openDir(p, sp, flee, R) {
   return best;
 }
 class Prey {
-  constructor(kind) {
-    this.kind = kind; this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
+  constructor(kind, who, at) {
+    this.kind = kind; if (kind === 'human') { this.who = who || 'chai'; const P = PEOPLE[this.who]; this.name = P.name; this.nervous = P.nervous; } this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
     let x, z, k = 0; do { x = rand(-TW / 2 + 3, TW / 2 - 3); z = rand(-TD / 2 + 3, TD / 2 - 3); } while ((!clearSpot(x, z) || (spider && Math.hypot(x - spider.pos.x, z - spider.pos.z) < spider.span * 1.6)) && k++ < 60);
-    if (kind === 'human') { const h = humanSpawn(); x = h.x; z = h.z; this.spawnName = h.name; }   // never a random spot (could be inside a building / out of sight)
+    if (kind === 'human') { const h = at || humanSpawn(prey.filter(q => q.kind === 'human' && !q.eaten).map(q => q.pos)); x = h.x; z = h.z; this.spawnName = h.name; }   // never a random spot (could be inside a building / out of sight)
     this.pos = new V3(x, 0, z); this.yaw = rand(0, 6.3); this.face = this.yaw; this.v = 0; this.t = rand(0, 2); this.hop = 0; this.vy = 0; this.y = 0;
     this.crouch = 0; this.kick = 0; this.chirp = 0; this.pitch = 0; this.hindA = .1; this.tibA = 0; this.ph = rand(0, 6.3);
     const g = this.mesh = new THREE.Group(); g.rotation.order = 'YXZ'; this.legs = []; this.ant = []; this.hind = [];
@@ -344,7 +344,7 @@ class Prey {
     this.vibT -= dt;
     if (this.moving && this.vibT <= 0 && vibOn) { spawnRipple(this.pos, this.vib); this.vibT = .45; }
   }
-  // ชัยภัทร (a person, town scale ≈ 1.78): the survival round's AI drives him (js/survive.js)
+  // a person (ชัยภัทร 1.78 / ตุ้ย 1.70, town scale): the survival round's AI drives them (js/survive.js)
   human(dt, sp, d) { if (this.ai) humanAI(this, dt, sp, d); }
   setOpacity(op) { // materials only go transparent while the roach is digging in, so normal rendering keeps depth sorting
     if (Math.abs(op - this.opacity) < .005) return; this.opacity = op;

@@ -2,7 +2,7 @@
 /* =====================================================================
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
-let haze = 0, cine = false, eyes = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
+let view = null, viewT = 0, haze = 0, cine = false, eyes = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
 /* ---------- city: buildings are walkable like ROCKS (height grid from their solid shell). A building is a wall the spider
    walks around until it is big enough to step up onto the roof (roof lower than CLIMB × leg span) ---------- */
 const CLIMB = .35, KAIJU = 2.4;                                // kaiju growth: span 5 → ×1.35 per molt up to maxSpan × KAIJU (31–38, 6–7 molts)
@@ -26,7 +26,8 @@ const obstaclesFor = L => L < 14 ? obstacles.concat(PROPS) : obstacles;
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
-const exuviae = [];
+const exuviae = [], EXU_LIFE = 180;
+function dropExuvia(e) { scene.remove(e); const ms = new Set(); e.traverse(q => { if (q.isMesh) { q.geometry.dispose(); ms.add(q.material); } }); ms.forEach(m => m.dispose()); }
 function newState(name, sp) { return { name, sp, span: 5, hunger: 40, growth: 0, molts: 0, temp: 25, hum: 70, hour: 17, lamp: true, led: true, phase: 'normal', phaseT: 0 }; }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function load() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return null; } }
@@ -274,9 +275,10 @@ function sensePrey(p, senseR) { // slit sensilla feel substrate vibration; the l
   return !p.eaten && !p.held && p.burrowed <= 0 && ((p.moving && d < senseR * p.vib) || d < spider.span * (p.kind === 'human' ? CHASE.touch : .55));   // legs reach into a gap after a person
 }
 
-/* the chase on ชัยภัทร (balance: see the round-4 notes in CLAUDE.md) */
-const CHASE = { overHuman: 1.08, acc: 5, turn: 1.5, lungeTurn: .5, biteR: .18, tMin: 10, tMax: 13, hungerD: 47, hungerN: 31, touch: .7, creep: .15,
-  search: 72, starveSense: 1.5, starveTop: 1.5, starveAcc: 1.4, starveT: 2, camp: 25, senseBase: 12, senseL: .6 };
+/* the chase on a person (balance: see the round-4 notes in CLAUDE.md) */
+const CHASE = { overHuman: 1.5, acc: 5, turn: 1.5, lungeTurn: .5, biteR: .28, tMin: 10, tMax: 13, hungerD: 33, hungerN: 22, touch: .7, creep: .15,
+  search: 72, starveSense: 1.5, starveTop: 1.5, starveAcc: 1.4, starveT: 2, camp: 25, senseBase: 15, senseL: .6,
+  pair: 1.4, meal: 16 };   // round 6: two people moving shake the ground more (sense range ×pair); a person is only a small meal for a giant (food value)
 function tick(dt) {
   TM = fast ? 6 : 1;
   const hrs = dt * .5 * TM; S.hour += hrs;
@@ -287,7 +289,7 @@ function tick(dt) {
   sayCD -= dt; sayGap -= dt; if ((chatT -= dt) <= 0) { chatT = rand(20, 32); moodTalk(); }
   ROUND.tick(dt);
   // care on autopilot, once per crisis: very hungry → drop in one prey; very dry → one misting (re-arms after it recovers)
-  if (!previewing && S.phase === 'normal' && S.hunger >= 85 && !S.autoFed && !prey.some(p => !p.eaten)) {
+  if (!previewing && S.phase === 'normal' && S.hunger >= 85 && !S.autoFed && !prey.some(p => !p.eaten && p.kind !== 'human')) {
     S.autoFed = true; say('starving', true); feed(Math.random() < .5 ? 'cricket' : 'dubia', true); }
   if (S.hunger < 60) S.autoFed = false;
   if (!previewing && S.hum < 55 && !S.autoMist) { S.autoMist = true; say('autoMist', true); mist(true); }
@@ -312,17 +314,17 @@ function tick(dt) {
   const hungry = S.hunger > 30 && S.phase === 'normal';
   const senseR = L * 2.8 * (night ? 1.3 : 1);
   if (nav.restT > 0) nav.restT -= dt * TM;                        // worn out after a chase: no hunting for a while
-  // ชัยภัทร: hunted once his steps are felt and the spider is a bit hungry (more at night); very hungry with nothing else
+  // a person: hunted once his steps are felt and the spider is a bit hungry (more at night); very hungry with nothing else
   // to eat → it goes out after his trail even without feeling him (updates every few seconds, not exact)
   const huntable = p => p.kind !== 'human' ? hungry : S.phase === 'normal' && nav.restT <= 0 && !p.boarded && S.hunger > (night ? CHASE.hungerN : CHASE.hungerD);
-  const humanR = (CHASE.senseBase + L * CHASE.senseL) * (night ? 1.3 : 1);      // his steps: × his gait (walk .6, jog 1, sprint 1.5)
+  const humanR = (CHASE.senseBase + L * CHASE.senseL) * (night ? 1.3 : 1) * (prey.filter(q => q.kind === 'human' && !q.eaten && q.v > .3).length > 1 ? CHASE.pair : 1);      // his steps: × his gait (walk .6, jog 1, sprint 1.5)
   const starving = S.hunger > CHASE.search && !prey.some(q => q.kind !== 'human' && !q.eaten);   // very hungry, nothing else to eat: every sense on him
-  if (starving && !nav.starving && prey.some(q => q.kind === 'human' && !q.eaten)) log(`${S.name} หิวจัดและไม่มีอาหารอื่น เริ่มออกล่าชัยภัทร (ไวต่อแรงสั่นขึ้นมาก)`, true);
+  if (starving && !nav.starving && prey.some(q => q.kind === 'human' && !q.eaten)) log(`${S.name} หิวจัดและไม่มีอาหารอื่น เริ่มออกล่าคนในเมือง (ไวต่อแรงสั่นขึ้นมาก)`, true);
   nav.starving = starving;
   if (['wander', 'idle', 'toBurrow', 'hide'].includes(sp.mode)) {
-    let p = null, pd = 1e9;                                          // of all it feels: the nearest (a person counts as farther: harder to catch)
+    let p = null, pd = 1e9;                                          // of all it feels: the nearest (a person counts as farther: harder to catch; of two people, the one felt most: distance ÷ vibration)
     for (const q of prey) if (huntable(q) && sensePrey(q, q.kind === 'human' ? humanR * (starving ? CHASE.starveSense : 1) : senseR)) {
-      const dq = Math.hypot(q.pos.x - sp.pos.x, q.pos.z - sp.pos.z) * (q.kind === 'human' ? 1.6 : 1); if (dq < pd) { pd = dq; p = q; } }
+      const dq = Math.hypot(q.pos.x - sp.pos.x, q.pos.z - sp.pos.z) * (q.kind === 'human' ? 1.6 / Math.max(q.vib, .3) : 1); if (dq < pd) { pd = dq; p = q; } }
     if (p) { sp.prey = p; nav.mem.copy(p.pos); nav.lost = 0; nav.replanT = 0; sp.route = []; setMode('hunt');
       log(`${S.name} รู้สึกถึงแรงสั่นของ${PREY_TH[p.kind]} จึงย่องเข้าหา`, true); say('hunt', true); }
   }
@@ -355,7 +357,7 @@ function tick(dt) {
         p.yaw = p.face = Math.atan2(sp.pos.x - p.pos.x, sp.pos.z - p.pos.z) + rand(-.6, .6);
         if (p.kind === 'cricket' && p.jump) p.jump(p.speed * 1.4, 5); else { p.v = p.speed; p.t = rand(1.5, 2.5); }
       }
-      if (nav.lost > (man && nav.starving ? CHASE.camp : 10) / M || sp.modeT > (man && nav.starving ? 70 : 45)) { setMode('idle'); if (man) nav.restT = rand(2, 5); log(man ? 'ชัยภัทรหลบนิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกตามหา' : 'เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
+      if (nav.lost > (man && nav.starving ? CHASE.camp : 10) / M || sp.modeT > (man && nav.starving ? 70 : 45)) { setMode('idle'); if (man) nav.restT = rand(2, 5); log(man ? `${p.name}หลบนิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกตามหา` : 'เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
       if ((nav.replanT -= dt) <= 0 || !sp.route.length) { const old = sp.route[0]; sp.route = routeTo(nav.mem); nav.replanT = .5;
         if (!old || old.distanceTo(sp.route[0]) > .5) { nav.best = Infinity; nav.stuckT = 0; } }
       const dm = Math.hypot(nav.mem.x - sp.pos.x, nav.mem.z - sp.pos.z);
@@ -373,7 +375,7 @@ function tick(dt) {
       if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z, tk); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
       else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z, tk); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
       if (sp.modeT > .2 && dm < (man ? L * CHASE.biteR + .9 : L * .3)) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true);
-        if (p.kind === 'human') { BLOOD.splash(sp.worldOf(new V3(0, -L * .03, L * .2)), 50); humanSay(p, 'caught'); log(`${S.name} ขย้ำชัยภัทรด้วยเขี้ยว เลือดกระเซ็น!`); } }
+        if (p.kind === 'human') { BLOOD.splash(sp.worldOf(new V3(0, -L * .03, L * .2)), 50); humanSay(p, 'caught'); ROUND.grief(p); log(`${S.name} ขย้ำ${p.name}ด้วยเขี้ยว เลือดกระเซ็น!`); } }
       else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); say('miss', true); }
       break;
     }
@@ -385,7 +387,7 @@ function tick(dt) {
       p.mesh.position.copy(mouth); p.mesh.rotation.set(.5, sp.yaw + Math.PI / 2, 0);
       if (p.kind === 'human') { // blood drips from the fangs; after the struggle the spider wraps him in silk
         if ((p.dripT = (p.dripT || 0) - dt) <= 0) { p.dripT = rand(.12, .35); BLOOD.drip(sp.worldOf(new V3(rand(-.03, .03) * L, -L * .05, L * .19))); }
-        const w = clamp((sp.modeT * TM - 2.5) / 4, 0, 1); if (w > 0 && !p.silk) { p.silk = BLOOD.cocoon(p); log(`${S.name} พันใยห่อชัยภัทรเป็นรังไหม`); }
+        const w = clamp((sp.modeT * TM - 2.5) / 4, 0, 1); if (w > 0 && !p.silk) { p.silk = BLOOD.cocoon(p); log(`${S.name} พันใยห่อ${p.name}เป็นรังไหม`); }
         if (p.silk) p.silk.scale.setScalar(.2 + .8 * w); }
       if (sp.modeT > 9 / TM) {
         leaveBolus(mouth, p.kind, p.k); if (p.kind === 'human') BLOOD.stain(mouth, 1.1);
@@ -417,6 +419,8 @@ function tick(dt) {
   for (let i = ripples.length - 1; i >= 0; i--) { const r = ripples[i]; r.userData.t += dt; const k = r.userData.t;
     const w = r.userData.wet, life = w ? 1.8 : 1.2; r.scale.setScalar(1 + k * (w ? 2.4 : 9) * r.userData.s); r.material.opacity = (w ? .3 : .45) * (1 - k / life); if (k > life) { scene.remove(r); r.material.dispose(); ripples.splice(i, 1); } }
   for (let i = boluses.length - 1; i >= 0; i--) { const b = boluses[i]; b.userData.t -= hrs; if (b.userData.t < 0) { scene.remove(b); boluses.splice(i, 1); } }
+  for (let i = exuviae.length - 1; i >= 0; i--) { const e = exuviae[i], f = ((e.userData.age = (e.userData.age || 0) + dt * TM) - EXU_LIFE) / 10;  // old skins: 3 min, then fade + sink over 10 s
+    if (f >= 1) { dropExuvia(e); exuviae.splice(i, 1); } else if (f > 0) { e.traverse(q => { if (q.isMesh) { q.material.opacity = .9 * (1 - f); q.castShadow = f < .5; } }); e.position.y = -f * (e.userData.sink || .3); } }
   if (humWarnT > 0) humWarnT -= hrs;
   if (humWarnT <= 0 && S.hum > 88) { log('ความชื้นสูงเกิน เสี่ยงเชื้อราในตู้ ควรหยุดพ่นน้ำสักพัก', true); humWarnT = 24; }
   if (humWarnT <= 0 && S.temp < 20) { log('อากาศเย็นไป แมงมุมเป็นสัตว์เลือดเย็น จึงเคลื่อนไหวช้าลง', true); humWarnT = 24; }
@@ -432,7 +436,7 @@ function leaveBolus(p, kind, k) {
 }
 let humWarnT = 0, factT = 3, factI = Math.floor(Math.random() * 21);
 function finishMolt() {
-  const ex = spider.exuvia(); scene.add(ex); exuviae.push(ex); if (exuviae.length > 2) scene.remove(exuviae.shift());
+  const ex = spider.exuvia(); ex.userData.age = 0; ex.userData.sink = spider.span * .05; scene.add(ex); exuviae.push(ex); if (exuviae.length > 2) dropExuvia(exuviae.shift());
   const old = spider.span; S.molts++; S.span = Math.min(spider.sp.maxSpan * KAIJU, +(old * 1.35).toFixed(1));
   const pos = spider.pos.clone(), yaw = spider.yaw; spider.dispose();
   spider = new Spider(S.sp, S.span); spider.yaw = yaw; spider.pos.copy(pos).add(new V3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(old * .6)); spider.placeFeet();
@@ -507,24 +511,30 @@ canvas.addEventListener('pointerup', e => {
   if (Math.random() < spider.sp.aggro) { setMode('threat'); say('poke', true); log(`${S.name} ยกขาหน้าและกางเขี้ยวขู่ บึ้งไทยไม่มีขนพิษ จึงป้องกันตัวด้วยการขู่และกัด`, true); }
   else { goBurrow('flee'); log(`${S.name} ตกใจ วิ่งกลับเข้าโพรงใต้ขอนไม้`); say('flee', true); }
 });
-const PREY_TH = { cricket: 'จิ้งหรีด', dubia: 'ดูเบีย', human: 'ชัยภัทร' }, HUMAN_SPAN = 12;
+const PREY_TH = { cricket: 'จิ้งหรีด', dubia: 'ดูเบีย', human: 'คน' }, HUMAN_SPAN = 12;
 function feed(kind, auto) {
-  if (kind === 'human') {
-    if (S.span < HUMAN_SPAN) { log(`แมงมุมยังตัวเล็ก (ขา ${S.span} ซม.) ต้องโตถึง ${HUMAN_SPAN} ซม. ก่อน ชัยภัทรถึงจะกลัว`); return; }
-    const h = prey.find(p => p.kind === 'human' && !p.eaten);
-    if (h) { log(h.held ? `ชัยภัทรกำลังถูก${S.name}กิน รอให้กินเสร็จก่อนค่อยปล่อยคนใหม่` : 'ชัยภัทรยังวิ่งหนีอยู่ในเมือง ปล่อยได้ทีละคน'); if (!h.held) focusOn(h); return; } }
+  if (kind === 'human') {   // both people (2 s apart); pressed again while they are out = the camera goes to each in turn
+    if (S.span < HUMAN_SPAN) { log(`แมงมุมยังตัวเล็ก (ขา ${S.span} ซม.) ต้องโตถึง ${HUMAN_SPAN} ซม. ก่อน คนถึงจะกลัว`); return; }
+    const hs = humansOut();
+    if (ROUND.on || ROUND.breakT >= 0) { if (hs.length) { focusI = (focusI + 1) % hs.length; focusOn(hs[focusI]); } else log(ROUND.on ? 'คนกำลังจะเข้ามาในเมือง รอสักครู่' : 'พักระหว่างรอบ รอบใหม่จะเริ่มเร็ว ๆ นี้'); return; }
+    ROUND.begin(); return; }
   else if (prey.filter(p => !p.eaten && p.kind !== 'human').length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
-  const np = new Prey(kind); prey.push(np); if (kind === 'human') { ROUND.start(np); focusOn(np); }
+  const np = new Prey(kind); prey.push(np);
   if (auto) log(`🤖 ให้อาหารอัตโนมัติ: ${S.name} หิวจัด จึงปล่อย${kind === 'cricket' ? 'จิ้งหรีด' : 'แมลงสาบดูเบีย'} 1 ตัว`);
   else if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
   else if (S.phase === 'soft') log('เขี้ยวยังนิ่มหลังลอกคราบ ยังไม่ควรให้อาหาร', true);
-  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? `🏃 ชัยภัทรหลงเข้ามาในเมืองร้างทาง${np.spawnName}… เขาต้องหาของกิน หาน้ำ และหลบแมงมุมยักษ์ให้ได้ 30 วัน` : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
+  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
 }
-// camera glides to ชัยภัทร for a few seconds when he walks in (or when you press the button while he is already out)
-let focusP = null, focusT = 0; const focusOn = p => { if (!cine && !eyes && !tankView && !saverOn) { focusP = p; focusT = 3.5; } };
+// camera glides to a person for a few seconds when he walks in (or when you press the button while he is already out)
+let focusP = null, focusT = 0, focusI = 0; const _wv = new V3(); const focusOn = p => { if (!watchWho && !view && !cine && !eyes && !tankView && !saverOn) { focusP = p; focusT = 3.5; } };
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
 $('tHuman').onclick = () => feed('human');
+$('tAutoRound').onclick = e => { S.autoRound = !S.autoRound; e.currentTarget.classList.toggle('on', S.autoRound);
+  log(S.autoRound ? '🔁 เล่นต่ออัตโนมัติ: เปิด (ถูกกินแล้วกลับมาใหม่ใน 10 วินาที, จบรอบแล้วเริ่มรอบใหม่เอง)' : '⏹ เล่นต่ออัตโนมัติ: ปิด (เล่นรอบเดียว ไม่เกิดใหม่)');
+  if (!S.autoRound) { ROUND.pend = ROUND.pend.filter(w => !w.again); if (ROUND.breakT >= 0) ROUND.breakT = -1; } };
+// short notice in the middle of the screen (respawn, stars)
+let noticeT = 0; function notice(t) { const n = $('notice'); n.textContent = t; n.classList.add('on'); clearTimeout(noticeT); noticeT = setTimeout(() => n.classList.remove('on'), 3500); }
 function mist(auto) { if (!auto) S.autoMist = false; S.hum = clamp(S.hum + 14, 0, 98); mistFx();
   if (auto) log(`🤖 พ่นน้ำอัตโนมัติ: ความชื้นต่ำมาก จึงพ่นละอองน้ำให้ 1 ครั้ง`); else { log('พ่นละอองน้ำ ความชื้นเพิ่มขึ้น'); say('misted', true); } }
 $('tMist').onclick = () => mist(false);
@@ -532,7 +542,13 @@ $('tLed').onclick = e => { S.led = !S.led; e.currentTarget.classList.toggle('on'
   if (S.led) { say('bright', true); log('ทารันทูลาไม่ชอบแสงจ้า ถ้าเปิดไฟตู้นานๆ มันจะหลบในโพรงบ่อยขึ้น', true); if (spider.mode === 'wander' && Math.random() < .5) goBurrow('toBurrow'); } };
 $('tLamp').onclick = e => { S.lamp = !S.lamp; e.currentTarget.classList.toggle('on', S.lamp); log(S.lamp ? 'เปิดไฟอุ่น' : 'ปิดไฟอุ่น'); };
 $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); };
-$('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); };
+$('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); if (follow && watchWho) setWatch(null); };
+// camera follows one person (by who, so it picks him up again after a respawn): off → ชัยภัทร → ตุ้ย → off
+let watchWho = null;
+function setWatch(w) { watchWho = w; focusT = 0; const b = $('tWatch'); b.textContent = '👁 ส่องคน: ' + (w ? PEOPLE[w].name : 'ปิด'); b.classList.toggle('on', !!w);
+  if (w) { if (follow) $('tFollow').click(); if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) $('tTank').click(); if (view === 'top') setView(null); } }
+$('tWatch').onclick = () => { const i = [null, ...PEOPLE_ORDER].indexOf(watchWho), w = [null, ...PEOPLE_ORDER][(i + 1) % 3];
+  if (w && !humansOut().length && !ROUND.on) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยส่องตามดู'); return; } setWatch(w); };
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
 { const d = document, el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, fsEl = () => d.fullscreenElement || d.webkitFullscreenElement;
   if (!req) $('tFull').hidden = true;
@@ -567,17 +583,34 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   ['pointermove', 'pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(ev => addEventListener(ev, wake, { passive: true, capture: true })); wake(); }
 // locked front view: the screen acts as the terrarium's front glass
 const CAM0 = { pol: controls.maxPolarAngle };
-function setCine(on) { cine = on; $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
+function setCine(on) { cine = on; if (on && view) setView(null); if (on && watchWho) setWatch(null); $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
 $('tCine').onclick = () => { setCine(!cine); if (cine && tankView) $('tTank').click(); };
-$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); if (tankView && eyes) setEyes(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
+$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); if (tankView && view) setView(null); if (tankView && eyes) setEyes(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
   if (tankView && follow) $('tFollow').click(); };
-// first person: look through ชัยภัทร's eyes (watch only: the orbit controls are off, the game drives him)
-const eyesOf = () => prey.find(p => p.kind === 'human' && !p.eaten && !p.boarded), eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
+// first person: look through a person's eyes (the one the camera last went to) (watch only: the orbit controls are off, the game drives him)
+const eyesOf = () => { const h = humansOut(); return h.includes(focusP) ? focusP : h[0]; }, eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
 function setEyes(on) { eyes = on; $('tEyes').classList.toggle('on', on);
-  if (on) { if (cine) setCine(false); if (tankView) $('tTank').click(); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
+  if (on) { if (cine) setCine(false); if (view) setView(null); if (tankView) $('tTank').click(); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
   else controls.target.copy(spider ? spider.root.position : controls.target);
   controls.enabled = !on && !tankView; resize(); }
-$('tEyes').onclick = () => { if (!eyes && !eyesOf()) { log('ยังไม่มีชัยภัทรในเมือง ปล่อยเขาก่อน แล้วค่อยมองผ่านสายตาเขา'); return; } setEyes(!eyes); };
+$('tEyes').onclick = () => { if (!eyes && !eyesOf()) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยมองผ่านสายตาเขา'); return; } setEyes(!eyes); };
+// locked camera angles: front / right / back / left (tilted down 25°) or straight down; zoom still works
+const VIEWS = { front: [0, 'หน้า'], right: [Math.PI / 2, 'ขวา'], back: [Math.PI, 'หลัง'], left: [-Math.PI / 2, 'ซ้าย'], top: [0, 'บน'] }, VIEW_ORDER = [null, 'front', 'right', 'back', 'left', 'top'];
+const viewDir = new V3();
+function setView(v) { view = v; viewT = v ? .6 : 0; const b = $('tView'); b.textContent = '🧭 มุม: ' + (v ? VIEWS[v][1] : 'อิสระ'); b.classList.toggle('on', !!v);
+  if (v) { if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) $('tTank').click(); focusT = 0; }
+  controls.enableRotate = !v; controls.enabled = !eyes && !tankView; }
+$('tView').onclick = () => setView(VIEW_ORDER[(VIEW_ORDER.indexOf(view) + 1) % VIEW_ORDER.length]);
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || saverOn) return; const i = '012345'.indexOf(e.key); if (i >= 0) setView(VIEW_ORDER[i]); });
+function viewCam(dt) {
+  const top = view === 'top', t = Math.tan(camera.fov * Math.PI / 360), a = VIEWS[view][0], el = top ? Math.PI / 2 - .01 : 25 * Math.PI / 180;
+  const side = top ? 0 : Math.abs(Math.sin(a)), wide = TW * (1 - side) + TD * side, deep = TD * (1 - side) + TW * side;   // tank size seen from that side
+  const R = top ? Math.max(TW / 2 / (t * camera.aspect), TD / 2 / t) * 1.08 + TH : Math.max(wide / 2 / (t * camera.aspect), TH * .75 / t) * .94 + deep / 2;
+  if (top || !follow || !spider) controls.target.lerp(camPrev.set(0, top ? 0 : TH * .3, 0), clamp(dt * 4, 0, 1));
+  viewDir.set(Math.sin(a) * Math.cos(el), Math.sin(el), Math.cos(a) * Math.cos(el));
+  const off = camPrev.copy(camera.position).sub(controls.target); let r = off.length() || R; off.divideScalar(r);
+  if (viewT > 0) { const k = clamp(dt / viewT, 0, 1); viewT -= dt; off.lerp(viewDir, k).normalize(); r = lerp(r, Math.min(R, controls.maxDistance), k); } else off.copy(viewDir);
+  camera.position.copy(controls.target).addScaledVector(off, r); }
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
 $('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
@@ -599,7 +632,7 @@ function hud() {
   bar('bTemp', (S.temp - 15) / 20 * 100, S.temp >= 24 && S.temp <= 28 ? 'ok' : 'bad'); $('vTemp').textContent = S.temp.toFixed(1) + '°C';
   bar('bHum', S.hum, S.hum >= 65 && S.hum <= 85 ? 'ok' : 'bad'); $('vHum').textContent = Math.round(S.hum) + '%';
   bar('bGrow', S.growth, S.growth >= 100 ? 'bad' : ''); $('vGrow').textContent = Math.round(S.growth) + '%';
-  { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยคนชื่อชัยภัทรเข้ามาในเมือง' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
+  { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยชัยภัทรกับตุ้ยเข้ามาในเมือง (กดซ้ำ = กล้องไปหาทีละคน)' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
   $('vSpan').textContent = S.span + ' ซม.'; $('vMolt').textContent = 'ลอก ' + S.molts + ' ครั้ง';
   const h = Math.floor(S.hour % 24); $('vTime').textContent = `วัน ${Math.floor(S.hour / 24) + 1} · ${String(h).padStart(2, '0')}:00`; $('vDay').textContent = isNight() ? '🌙 กลางคืน' : '☀️ กลางวัน';
 }
@@ -614,7 +647,8 @@ Object.entries(SPECIES).forEach(([k, v]) => {
 });
 function begin(state, fresh) {
   if (previewing) { spider.dispose(); previewing = false; }
-  S = state; if (S.led === undefined) S.led = true;
+  S = state; if (S.led === undefined) S.led = true; if (S.autoRound === undefined) S.autoRound = true; S.rounds = S.rounds || 0; S.best = S.best || 0;   // old saves: new round-6 fields
+  $('tAutoRound').classList.toggle('on', S.autoRound);
   $('start').hidden = true; ['hud', 'log', 'tools'].forEach(id => $(id).hidden = false);
   $('tLamp').classList.toggle('on', S.lamp); $('tLed').classList.toggle('on', S.led);
   spider = new Spider(S.sp, S.span); pickWander();
@@ -694,7 +728,11 @@ function loop() {
   if (focusT > 0 && focusP && !focusP.eaten && !cine && !eyes && !tankView && !saverOn) { focusT -= dt; const k = clamp(dt * 2.2, 0, 1);
     camPrev.copy(controls.target); controls.target.lerp(focusP.mesh.position, k); camera.position.add(camPrev.sub(controls.target).negate());
     const off = camPrev.copy(camera.position).sub(controls.target), r = off.length(); if (r > 26) camera.position.copy(controls.target).addScaledVector(off, lerp(r, 26, k) / r); }
-  else if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
+  else if (watchWho && !cine && !eyes && !tankView && !saverOn) { const p = humansOut().find(q => q.who === watchWho);   // watching a person
+    if (p) { camPrev.copy(controls.target); controls.target.lerp(_wv.copy(p.mesh.position).setY(p.mesh.position.y + .9), clamp(dt * 3, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate());
+      const off = camPrev.copy(camera.position).sub(controls.target), r = off.length(); if (r > 16 && !view) camera.position.copy(controls.target).addScaledVector(off, lerp(r, 16, clamp(dt * 1.5, 0, 1)) / r); } }
+  else if (follow && spider && view !== 'top') { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
+  if (view && !saverOn && !tankView && !cine && !eyes) viewCam(dt);
   if (tankView && !saverOn) { // look straight in through the front glass
     const t = Math.tan(camera.fov * Math.PI / 360), d = Math.min(TH / 2 / t, TW / 2 / (t * camera.aspect)) * .97, y = TH / 2; // 'cover' fit: the glass always fills the window, no floor in front
     controls.target.set(0, y, 0); camera.position.lerp(camPrev.set(0, y, TD / 2 + d), clamp(dt * 3, 0, 1)); }
@@ -721,7 +759,7 @@ function loop() {
   FOG0 = FOG0 || scene.fog.density; scene.fog.density = lerp(scene.fog.density, cine ? FOG0 * 2.4 : FOG0, clamp(dt, 0, 1));
   controls.update();
   if (eyes) { const p = eyesOf();                                  // his eyes: a point just in front of his face, looking where his head points
-    if (!p) { setEyes(false); log('มุมมองสายตาชัยภัทรปิดแล้ว (เขาไม่อยู่ในเมืองแล้ว)'); }
+    if (!p) { setEyes(false); log('มุมมองสายตาคนปิดแล้ว (ไม่มีใครอยู่ในเมืองแล้ว)'); }
     else { const n = p.hum.j.neck; eyeP.set(0, .141, .13); n.localToWorld(eyeP); eyeF.set(0, .12, 6); n.localToWorld(eyeF);
       if (eyeL.y < -1e8) eyeL.copy(eyeF); eyeL.lerp(eyeF, clamp(dt * 7, 0, 1)); camera.position.copy(eyeP); camera.lookAt(eyeL); controls.target.copy(eyeL); } }
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
