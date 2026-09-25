@@ -63,13 +63,13 @@ const HELI = (() => {
       st.t += dt; const now = st.t;
       if (st.mode === 'patrol') { st.a += dt * .13; steer(dt, tmp.set(C.x + Math.cos(st.a) * C.rx, C.y + 2 * Math.sin(st.a * 2.3), C.z + Math.sin(st.a) * C.rz), 9, .8); }
       else if (st.mode === 'descend') {                                      // over him, then straight down to a low hover
-        const P = st.p.pos, hy = Math.max(roofAround(P.x, P.z, 5.5) + 3.2, groundY(P.x, P.z) + 3.4), above = tmp.set(P.x, Math.max(hy, 30), P.z);
-        const flat = Math.hypot(P.x - st.pos.x, P.z - st.pos.z);
-        if (flat > 1.5) steer(dt, above, 16, 1.4); else if (steer(dt, tmp.set(P.x, hy, P.z), 6, 1.6) < .4) { st.mode = 'hover'; st.t = 0; }
+        const P = st.p.pos, hy = Math.max(roofAround(P.x, P.z, 5.5) + 3.2, groundY(P.x, P.z) + 3.4), flat = Math.hypot(P.x - st.pos.x, P.z - st.pos.z);
+        if (flat > 4) steer(dt, tmp.set(P.x, Math.max(hy, Math.min(st.pos.y, 30)), P.z), 16, 1.4);                       // over him (never climbs back up)
+        else if (steer(dt, tmp.set(P.x, hy, P.z), 7, 1.6) < 1.5) { st.mode = 'hover'; st.t = 0; }
       } else if (st.mode === 'hover') { const P = st.p.pos; steer(dt, tmp.set(P.x, st.pos.y, P.z), 3, 2);
         if (st.t > 1.6 && st.done) { st.done(); st.done = null; } if (st.t > 3) { st.mode = 'leave'; st.t = 0; } }
       else if (st.mode === 'leave') { steer(dt, tmp.set(st.pos.x * .6, TH + 40, st.pos.z * .6 - 20), 14, .9);
-        if (st.pos.y > TH + 12) { st.gone = true; g.visible = false; } }
+        if (st.pos.y > TH + 12) { st.gone = true; g.visible = false; } if (st.t > 14) this.reset(); }   // back on patrol a while later
       // attitude: face the direction of travel, bank into the turn, nose down with speed
       const sp = Math.hypot(st.vel.x, st.vel.z), wy = sp > .8 ? Math.atan2(st.vel.x, st.vel.z) : st.yaw, dy = Math.atan2(Math.sin(wy - st.yaw), Math.cos(wy - st.yaw));
       st.yaw += dy * clamp(dt * 1.5, 0, 1); st.roll = lerp(st.roll, clamp(-dy * 1.2, -.4, .4), clamp(dt * 2, 0, 1)); st.pitch = lerp(st.pitch, clamp(sp * .012, 0, .2), clamp(dt * 2, 0, 1));

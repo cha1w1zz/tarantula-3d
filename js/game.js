@@ -127,22 +127,24 @@ function isNight() { const h = S.hour % 24; return h < 6 || h >= 19; }
 function daylight() { const h = S.hour % 24, ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }; return ss(5.3, 7, h) * (1 - ss(18.3, 19.8, h)); }
 function setMode(m) {
   if (spider.prey && spider.prey.held && m !== 'eat') { spider.prey.held = false; spider.prey.heldT = 0; spider.prey.y = 0; }   // dropped the meal
+  if (m !== 'hunt' && m !== 'strike') { if (nav.chaseT) ROUND.chaseOff(m === 'eat'); nav.chaseT = 0; nav.chaseMax = rand(CHASE.tMin, CHASE.tMax); }
   spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.stuckN = 0; nav.backT = 0; nav.best = Infinity; nav.huntBest = Infinity; nav.huntT = 0;
   if (m === 'idle') nav.idleFor = rand(2.5, 6);
 }
-const nav = { pauseT: 0, burstT: 2, stuckT: 0, stuckN: 0, backT: 0, back: new V3(), best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
+const nav = { pauseT: 0, burstT: 2, stuckT: 0, stuckN: 0, backT: 0, back: new V3(), restT: 0, chaseT: 0, chaseMax: 12, starving: false, cRT: 0, cR: null, best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
 function accelerate(dt, des, acc) { const dv = des.clone().sub(spider.vel), m = acc * dt; if (dv.length() > m) dv.setLength(m); spider.vel.add(dv); }
 function brake(dt) { accelerate(dt, new V3(), spider.span * 6 * TM); spider.yawRate = lerp(spider.yawRate, 0, clamp(dt * 5, 0, 1)); spider.yaw += spider.yawRate * dt; }
-function faceTo(dt, x, z) { let dy = Math.atan2(x - spider.pos.x, z - spider.pos.z) - spider.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-  spider.yawRate = lerp(spider.yawRate, clamp(dy * 4, -3, 3), clamp(dt * 6, 0, 1)); spider.yaw += spider.yawRate * dt; }
-function drive(dt, target, maxSpeed) {
+function faceTo(dt, x, z, k) { let dy = Math.atan2(x - spider.pos.x, z - spider.pos.z) - spider.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+  spider.yawRate = lerp(spider.yawRate, clamp(dy * 4, -3, 3) * (k || 1), clamp(dt * 6, 0, 1)); spider.yaw += spider.yawRate * dt; }
+// opt (the chase): acc = acceleration, turn = max turn rate, noSlow = no easing off near the target
+function drive(dt, target, maxSpeed, opt) {
   const sp = spider, L = sp.span, dx = target.x - sp.pos.x, dz = target.z - sp.pos.z, d = Math.hypot(dx, dz);
   let dy = Math.atan2(dx, dz) - sp.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-  sp.yawRate = lerp(sp.yawRate, clamp(dy * 3.5, -2.8, 2.8) * Math.min(TM, 3), clamp(dt * 5, 0, 1));
+  const tc = opt ? opt.turn : 2.8; sp.yawRate = lerp(sp.yawRate, clamp(dy * 3.5, -tc, tc) * Math.min(TM, 3), clamp(dt * 5, 0, 1));
   sp.yaw += sp.yawRate * dt;
   const face = clamp((Math.cos(dy) - .2) / .8, 0, 1);        // pivot on the spot before walking off
   const fwd = new V3(Math.sin(sp.yaw), 0, Math.cos(sp.yaw));
-  let v = maxSpeed * face * clamp(d / (L * .8), .2, 1);
+  let v = maxSpeed * face * (opt && opt.noSlow ? 1 : clamp(d / (L * .8), .2, 1));
   const ahead = groundY(sp.pos.x + fwd.x * L * .3, sp.pos.z + fwd.z * L * .3) - groundY(sp.pos.x, sp.pos.z);
   v *= clamp(1 - ahead / (L * .3) * .6, .4, 1.1);            // climbing a rock is slower than walking on soil
   v *= clamp(1 - (sp.climbLag || 0) * 7, .15, 1);           // stepping up onto a roof: wait for the body to rise with the legs
@@ -154,7 +156,8 @@ function drive(dt, target, maxSpeed) {
   for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .35;           // buildings: slide along the wall
     if (n.d < R + L * .4) { const push = clamp((R + L * .4 - n.d) / (L * .4), 0, 2), side = Math.sign(n.nx * dz - n.nz * dx) || 1;
       des.x += (n.nx - n.nz * side * .8) * maxSpeed * push * .9; des.z += (n.nz + n.nx * side * .8) * maxSpeed * push * .9; } }
-  accelerate(dt, des, L * 5 * TM);
+  const dl = Math.hypot(des.x, des.z), cap = maxSpeed * 1.15; if (dl > cap) des.multiplyScalar(cap / dl);   // wall sliding never adds speed
+  accelerate(dt, des, opt ? opt.acc : L * 5 * TM);
   return d;
 }
 /* ---------- town navigation (per spider size): a 1-unit grid of the cells a spider of span L can stand in (tall buildings
@@ -184,10 +187,19 @@ function navNear(G, x, z) {                                      // nearest free
     const i = i0 + di, j = j0 + dj; if (i >= 0 && j >= 0 && i < G.nx && j < G.nz && G.free[j * G.nx + i]) return j * G.nx + i; }
   return -1;
 }
+function navNearComp(G, x, z, c) {                              // nearest free cell of area c (to get as close as it can to an unreachable spot)
+  const c0 = navCell(G, x, z), i0 = c0 % G.nx, j0 = c0 / G.nx | 0;
+  for (let r = 0; r < 40; r++) { let best = -1, bd = 1e9;
+    for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue; const i = i0 + di, j = j0 + dj, q = j * G.nx + i;
+      if (i >= 0 && j >= 0 && i < G.nx && j < G.nz && G.free[q] && G.comp[q] === c && di * di + dj * dj < bd) { bd = di * di + dj * dj; best = q; } }
+    if (best >= 0) return best; }
+  return -1;
+}
 function navSegFree(G, a, b) { const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / .5);
   for (let k = 1; k < n; k++) { const t = k / n; if (!G.free[navCell(G, lerp(a.x, b.x, t), lerp(a.z, b.z, t))]) return false; } return true; }
 function astar(G, from, to) {                                    // 8-neighbour A*, octile heuristic → string-pulled waypoints (last = `to`)
-  const s = navNear(G, from.x, from.z), e = navNear(G, to.x, to.z); if (s < 0 || e < 0 || G.comp[s] !== G.comp[e]) return null;
+  const s = navNear(G, from.x, from.z); let e = navNear(G, to.x, to.z); if (s < 0 || e < 0) return null;
+  if (G.comp[s] !== G.comp[e]) { e = navNearComp(G, to.x, to.z, G.comp[s]); if (e < 0) return null; to = new V3(e % G.nx - TW / 2, 0, (e / G.nx | 0) - TD / 2); }   // out of reach: as close as it gets
   const nx = G.nx, g = new Float32Array(G.free.length).fill(1e9), par = new Int32Array(G.free.length).fill(-1), done = new Uint8Array(G.free.length);
   const ei = e % nx, ej = e / nx | 0, h = k => { const dx = Math.abs(k % nx - ei), dz = Math.abs((k / nx | 0) - ej); return Math.max(dx, dz) + .414 * Math.min(dx, dz); };
   const heap = [[h(s), s]]; g[s] = 0;
@@ -259,9 +271,12 @@ function goBurrow(mode) {                                       // too big for t
   spider.route = routeTo(BURROW); setMode(mode); }
 function sensePrey(p, senseR) { // slit sensilla feel substrate vibration; the legs also touch prey that sits very close
   const d = Math.hypot(p.pos.x - spider.pos.x, p.pos.z - spider.pos.z);
-  return !p.eaten && !p.held && p.burrowed <= 0 && ((p.moving && d < senseR * p.vib) || d < spider.span * .55);
+  return !p.eaten && !p.held && p.burrowed <= 0 && ((p.moving && d < senseR * p.vib) || d < spider.span * (p.kind === 'human' ? CHASE.touch : .55));   // legs reach into a gap after a person
 }
 
+/* the chase on ชัยภัทร (balance: see the round-4 notes in CLAUDE.md) */
+const CHASE = { overHuman: 1.08, acc: 5, turn: 1.5, lungeTurn: .5, biteR: .18, tMin: 10, tMax: 13, hungerD: 47, hungerN: 31, touch: .7, creep: .15,
+  search: 72, starveSense: 1.5, starveTop: 1.5, starveAcc: 1.4, starveT: 2, camp: 25, senseBase: 12, senseL: .6 };
 function tick(dt) {
   TM = fast ? 6 : 1;
   const hrs = dt * .5 * TM; S.hour += hrs;
@@ -270,6 +285,7 @@ function tick(dt) {
   if (night && S.wasNight === false) say('night', true);
   S.wasNight = night;
   sayCD -= dt; sayGap -= dt; if ((chatT -= dt) <= 0) { chatT = rand(20, 32); moodTalk(); }
+  ROUND.tick(dt);
   // care on autopilot, once per crisis: very hungry → drop in one prey; very dry → one misting (re-arms after it recovers)
   if (!previewing && S.phase === 'normal' && S.hunger >= 85 && !S.autoFed && !prey.some(p => !p.eaten)) {
     S.autoFed = true; say('starving', true); feed(Math.random() < .5 ? 'cricket' : 'dubia', true); }
@@ -295,8 +311,18 @@ function tick(dt) {
   const w = sp.want; for (const k in w) w[k] = 0;
   const hungry = S.hunger > 30 && S.phase === 'normal';
   const senseR = L * 2.8 * (night ? 1.3 : 1);
-  if (hungry && ['wander', 'idle', 'toBurrow', 'hide'].includes(sp.mode)) {
-    const p = prey.find(p => sensePrey(p, senseR));
+  if (nav.restT > 0) nav.restT -= dt * TM;                        // worn out after a chase: no hunting for a while
+  // ชัยภัทร: hunted once his steps are felt and the spider is a bit hungry (more at night); very hungry with nothing else
+  // to eat → it goes out after his trail even without feeling him (updates every few seconds, not exact)
+  const huntable = p => p.kind !== 'human' ? hungry : S.phase === 'normal' && nav.restT <= 0 && !p.boarded && S.hunger > (night ? CHASE.hungerN : CHASE.hungerD);
+  const humanR = (CHASE.senseBase + L * CHASE.senseL) * (night ? 1.3 : 1);      // his steps: × his gait (walk .6, jog 1, sprint 1.5)
+  const starving = S.hunger > CHASE.search && !prey.some(q => q.kind !== 'human' && !q.eaten);   // very hungry, nothing else to eat: every sense on him
+  if (starving && !nav.starving && prey.some(q => q.kind === 'human' && !q.eaten)) log(`${S.name} หิวจัดและไม่มีอาหารอื่น เริ่มออกล่าชัยภัทร (ไวต่อแรงสั่นขึ้นมาก)`, true);
+  nav.starving = starving;
+  if (['wander', 'idle', 'toBurrow', 'hide'].includes(sp.mode)) {
+    let p = null, pd = 1e9;                                          // of all it feels: the nearest (a person counts as farther: harder to catch)
+    for (const q of prey) if (huntable(q) && sensePrey(q, q.kind === 'human' ? humanR * (starving ? CHASE.starveSense : 1) : senseR)) {
+      const dq = Math.hypot(q.pos.x - sp.pos.x, q.pos.z - sp.pos.z) * (q.kind === 'human' ? 1.6 : 1); if (dq < pd) { pd = dq; p = q; } }
     if (p) { sp.prey = p; nav.mem.copy(p.pos); nav.lost = 0; nav.replanT = 0; sp.route = []; setMode('hunt');
       log(`${S.name} รู้สึกถึงแรงสั่นของ${PREY_TH[p.kind]} จึงย่องเข้าหา`, true); say('hunt', true); }
   }
@@ -311,20 +337,29 @@ function tick(dt) {
     case 'hunt': {
       const p = sp.prey; w.stalk = 1;
       if (!p || p.eaten || p.burrowed > 0) { setMode('idle'); log('เหยื่อหายไป แมงมุมหยุดล่า'); break; }
-      const d = Math.hypot(p.pos.x - sp.pos.x, p.pos.z - sp.pos.z), felt = sensePrey(p, senseR * 1.3);
+      const man = p.kind === 'human', d = Math.hypot(p.pos.x - sp.pos.x, p.pos.z - sp.pos.z), felt = sensePrey(p, (man ? humanR : senseR) * 1.3);
       if (felt) { nav.mem.copy(p.pos); nav.lost = 0; } else nav.lost += dt;
-      if (d < L * .9 && (felt || d < L * .6)) { setMode('strike'); break; }
+      if (man && nav.chaseT > 0 && (nav.chaseT += dt * TM) > nav.chaseMax) {   // a chase lasts 10–15 s at most: then the spider is spent
+        setMode('idle'); nav.restT = rand(6, 10); log(`${S.name} ไล่จนหมดแรง ต้องหยุดพัก (แมงมุมวิ่งเร็วได้แค่ช่วงสั้น ๆ)`, true); break; }
+      if (man ? felt && d < L * .5 + 1.5 : d < L * .9 && (felt || d < L * .6)) { sp.strikeN = (sp.strikeN || 0) + 1; setMode('strike'); break; }
+      const dm0 = Math.hypot(nav.mem.x - sp.pos.x, nav.mem.z - sp.pos.z);
+      if (man && (felt && d < L * 3 || nav.chaseT > 0 && dm0 > L * .6)) {   // the chase: faster than him flat out, but slow to speed up and to turn (lost contact: rush to where he went quiet)
+        if (!nav.chaseT) { ROUND.chaseOn(p); nav.chaseT = 1e-3; if (starving) nav.chaseMax += CHASE.starveT; }
+        let lead = felt ? p.pos.clone().addScaledVector(new V3(Math.sin(p.face), 0, Math.cos(p.face)), Math.min(d * .15, 3) * (p.v || 0) / HUM.sprint) : nav.mem.clone();
+        if ((nav.cRT -= dt) <= 0) { nav.cRT = .4; const G = navGrid(L); nav.cR = navSegFree(G, sp.pos, lead) ? null : astar(G, sp.pos, lead); }   // a building in the way: run round it
+        if (nav.cR) { while (nav.cR.length > 1 && Math.hypot(nav.cR[0].x - sp.pos.x, nav.cR[0].z - sp.pos.z) < L * .25) nav.cR.shift(); lead = nav.cR[0]; }
+        drive(dt, lead, HUM.sprint * CHASE.overHuman * TM * (starving ? CHASE.starveTop : 1), { acc: CHASE.acc * TM * (starving ? CHASE.starveAcc : 1), turn: CHASE.turn, noSlow: true }); w.stalk = 0; break; }
       // prey wedged in a gap the spider can't fit into (log/rock crevice): no progress for a while → prey gets flushed out into the open
       if (d < nav.huntBest - .3) { nav.huntBest = d; nav.huntT = 0; } else if ((nav.huntT += dt) > 3 && d < L * 2.5) {
         nav.huntT = 0; nav.huntBest = Infinity; p.burrowed = 0; p.flushT = 2.5;
         p.yaw = p.face = Math.atan2(sp.pos.x - p.pos.x, sp.pos.z - p.pos.z) + rand(-.6, .6);
         if (p.kind === 'cricket' && p.jump) p.jump(p.speed * 1.4, 5); else { p.v = p.speed; p.t = rand(1.5, 2.5); }
       }
-      if (nav.lost > 10 / M || sp.modeT > 45) { setMode('idle'); log('เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
+      if (nav.lost > (man && nav.starving ? CHASE.camp : 10) / M || sp.modeT > (man && nav.starving ? 70 : 45)) { setMode('idle'); if (man) nav.restT = rand(2, 5); log(man ? 'ชัยภัทรหลบนิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกตามหา' : 'เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
       if ((nav.replanT -= dt) <= 0 || !sp.route.length) { const old = sp.route[0]; sp.route = routeTo(nav.mem); nav.replanT = .5;
         if (!old || old.distanceTo(sp.route[0]) > .5) { nav.best = Infinity; nav.stuckT = 0; } }
       const dm = Math.hypot(nav.mem.x - sp.pos.x, nav.mem.z - sp.pos.z);
-      if (!felt && dm < L * .6) { brake(dt); faceTo(dt, nav.mem.x, nav.mem.z); }   // lost the trail at its last position: freeze and wait
+      if (!felt && dm < L * .6) { if (man && dm > L * .15) drive(dt, nav.mem, speed * CHASE.creep); else { brake(dt); faceTo(dt, nav.mem.x, nav.mem.z); } }   // lost the trail at its last position: freeze and wait (a person: feel around the spot)
       else if (sp.route.length > 1) follow_route(dt, speed * .45);
       else drive(dt, nav.mem, speed * (felt ? .38 : .28));
       break;
@@ -334,9 +369,10 @@ function tick(dt) {
       if (!p || p.eaten) { setMode('idle'); break; }
       const fwd = new V3(Math.sin(sp.yaw), 0, Math.cos(sp.yaw)), mouth = sp.pos.clone().addScaledVector(fwd, L * .2);
       const dm = Math.hypot(p.pos.x - mouth.x, p.pos.z - mouth.z);
-      if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
-      else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
-      if (sp.modeT > .2 && dm < L * .3) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true);
+      const man = p.kind === 'human', tk = man ? CHASE.lungeTurn : 1;  // a person: a narrower bite and a straighter lunge, so a side-step can beat it
+      if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z, tk); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
+      else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z, tk); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
+      if (sp.modeT > .2 && dm < (man ? L * CHASE.biteR + .9 : L * .3)) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true);
         if (p.kind === 'human') { BLOOD.splash(sp.worldOf(new V3(0, -L * .03, L * .2)), 50); humanSay(p, 'caught'); log(`${S.name} ขย้ำชัยภัทรด้วยเขี้ยว เลือดกระเซ็น!`); } }
       else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); say('miss', true); }
       break;
@@ -477,11 +513,11 @@ function feed(kind, auto) {
     if (S.span < HUMAN_SPAN) { log(`แมงมุมยังตัวเล็ก (ขา ${S.span} ซม.) ต้องโตถึง ${HUMAN_SPAN} ซม. ก่อน ชัยภัทรถึงจะกลัว`); return; }
     if (prey.some(p => p.kind === 'human' && !p.eaten)) { log('ชัยภัทรยังวิ่งหนีอยู่ในเมือง ปล่อยได้ทีละคน'); return; } }
   if (prey.filter(p => !p.eaten).length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
-  prey.push(new Prey(kind));
+  const np = new Prey(kind); prey.push(np); if (kind === 'human') ROUND.start(np);
   if (auto) log(`🤖 ให้อาหารอัตโนมัติ: ${S.name} หิวจัด จึงปล่อย${kind === 'cricket' ? 'จิ้งหรีด' : 'แมลงสาบดูเบีย'} 1 ตัว`);
   else if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
   else if (S.phase === 'soft') log('เขี้ยวยังนิ่มหลังลอกคราบ ยังไม่ควรให้อาหาร', true);
-  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? '🏃 ชัยภัทรเดินหลงเข้ามาในเมืองร้าง… ถ้าเห็นแมงมุมยักษ์เขาจะวิ่งหนีสุดชีวิต' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
+  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? '🏃 ชัยภัทรหลงเข้ามาในเมืองร้าง… เขาต้องหาของกิน หาน้ำ และหลบแมงมุมยักษ์ให้ได้ 30 วัน' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
 }
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');

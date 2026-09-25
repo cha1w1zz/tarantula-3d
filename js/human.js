@@ -131,7 +131,7 @@ PREY_KINDS.human = (p, g) => {
   batch.build(); p.limbs = batch;
   p.hum = { j: J, t: rand(0, 9), ph: rand(0, 6.3), v: 0, run: 0, lookT: rand(1, 3), lookD: 0, lookS: 1, look: 0, roll: 0, pf: null, holdK: 0, fl: 0 };
   p.rig = humanRig;
-  p.speed = 1.4; p.run = 7.5; p.value = 55; p.vib = 1.5;  // walk ≈ 1.4, sprint ≈ 7.5 (faster than crickets)
+  p.speed = 1.4; p.run = HUM.sprint; p.value = 55; p.vib = .45;  // walk ≈ 1.4, sprint ≈ 9.5 (js/survive.js drives him)
   BLOOD.warm();  // compile the blood shaders now, not at the moment of the bite
 };
 
@@ -204,9 +204,13 @@ function humanRig(p, dt, v) {
     '@keyframes humShake{from{margin-left:-2px}to{margin-left:2px}}';
   document.head.appendChild(st); })();
 const humanSay = (() => {
-  const LINES = { panic: ['ช่วยด้วย!', 'แมงมุมยักษ์!!', 'อย่ากินผมนะ!', 'หนีเร็ว!', 'แม่จ๋าาา!', 'ใครก็ได้ช่วยที!'], calm: ['เงียบจัง…', 'เมืองนี้ร้างจริง ๆ', 'ได้ยินเสียงอะไรไหม?'], caught: ['อ๊ากกก!!', 'ปล่อยผมนะ!'] };
-  return (p, cat) => { const L = LINES[cat]; if (!L || (p.sayCD > 0 && cat !== 'caught')) return; p.sayCD = 2.5;
-    const t = L[Math.random() * L.length | 0]; p.sayTxt = `ชัยภัทร: ${t}`; p.sayT = 2.6; p.sayCat = cat; if (cat !== 'calm') log(`<i>ชัยภัทร:</i> “${t}”`, 'say'); };
+  const LINES = { panic: ['ช่วยด้วย!', 'แมงมุมยักษ์!!', 'อย่ากินผมนะ!', 'หนีเร็ว!', 'แม่จ๋าาา!', 'ใครก็ได้ช่วยที!'], calm: ['เงียบจัง…', 'เมืองนี้ร้างจริง ๆ', 'ได้ยินเสียงอะไรไหม?'], caught: ['อ๊ากกก!!', 'ปล่อยผมนะ!'],
+    juke: ['หลบ!', 'ทางนี้!', 'พลาดแล้วเจ้ายักษ์!'], tired: ['ไม่ไหวแล้ว…', 'หอบ…หอบ…', 'ขาจะขาดแล้ว'], phew: ['รอดไปที…', 'เงียบ ๆ ไว้…', 'เกือบไปแล้ว'],
+    peek: ['มันยังอยู่แถวนี้…', 'รอก่อน…', 'ยังไม่ปลอดภัย'], hungry: ['หิวจะแย่ ไปหาอะไรกินดีกว่า', 'ท้องร้องแล้ว…'], thirsty: ['คอแห้งมาก…', 'ต้องไปหาน้ำ'],
+    ate: ['อิ่มแล้ว ค่อยมีแรงหน่อย'], drank: ['ชื่นใจ…'], rescue: ['เฮลิคอปเตอร์! ทางนี้!!', 'ผมอยู่นี่!!'] };
+  const LOGGED = { caught: 1, rescue: 1, panic: 1 };   // the rest only show in his bubble (no log spam during a chase)
+  return (p, cat, force) => { const L = LINES[cat]; if (!L || (p.sayCD > 0 && cat !== 'caught' && !force)) return; p.sayCD = 2.5;
+    const t = L[Math.random() * L.length | 0]; p.sayTxt = `ชัยภัทร: ${t}`; p.sayT = 2.6; p.sayCat = cat; if (LOGGED[cat]) log(`<i>ชัยภัทร:</i> “${t}”`, 'say'); };
 })();
 const _sayV = new V3();
 function preyTalk(dt) {
@@ -215,7 +219,7 @@ function preyTalk(dt) {
     if (p.eaten) { el.remove(); return; }
     const q = p.hum ? p.hum.j.neck.getWorldPosition(_sayV) : _sayV.copy(p.mesh.position); q.y += .55; q.project(camera);
     const on = p.sayT > .2 && q.z < 1 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1 && !document.body.classList.contains('noui');
-    el.classList.toggle('on', on); el.classList.toggle('panic', p.sayCat !== 'calm');
+    el.classList.toggle('on', on); el.classList.toggle('panic', ['panic', 'caught', 'juke', 'tired'].includes(p.sayCat));
     if (on) { if (el.textContent !== p.sayTxt) el.textContent = p.sayTxt; el.style.left = clamp((q.x * .5 + .5) * innerWidth, 110, innerWidth - 110) + 'px'; el.style.top = Math.max(50, (-q.y * .5 + .5) * innerHeight) + 'px'; }
   });
 }
