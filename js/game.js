@@ -127,10 +127,10 @@ function isNight() { const h = S.hour % 24; return h < 6 || h >= 19; }
 function daylight() { const h = S.hour % 24, ss = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }; return ss(5.3, 7, h) * (1 - ss(18.3, 19.8, h)); }
 function setMode(m) {
   if (spider.prey && spider.prey.held && m !== 'eat') { spider.prey.held = false; spider.prey.heldT = 0; spider.prey.y = 0; }   // dropped the meal
-  spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.best = Infinity; nav.huntBest = Infinity; nav.huntT = 0;
+  spider.mode = m; spider.modeT = 0; nav.stuckT = 0; nav.stuckN = 0; nav.backT = 0; nav.best = Infinity; nav.huntBest = Infinity; nav.huntT = 0;
   if (m === 'idle') nav.idleFor = rand(2.5, 6);
 }
-const nav = { pauseT: 0, burstT: 2, stuckT: 0, best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
+const nav = { pauseT: 0, burstT: 2, stuckT: 0, stuckN: 0, backT: 0, back: new V3(), best: Infinity, idleFor: 3, replanT: 0, lost: 0, mem: new V3(), prev: new V3() };
 function accelerate(dt, des, acc) { const dv = des.clone().sub(spider.vel), m = acc * dt; if (dv.length() > m) dv.setLength(m); spider.vel.add(dv); }
 function brake(dt) { accelerate(dt, new V3(), spider.span * 6 * TM); spider.yawRate = lerp(spider.yawRate, 0, clamp(dt * 5, 0, 1)); spider.yaw += spider.yawRate * dt; }
 function faceTo(dt, x, z) { let dy = Math.atan2(x - spider.pos.x, z - spider.pos.z) - spider.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -157,22 +157,93 @@ function drive(dt, target, maxSpeed) {
   accelerate(dt, des, L * 5 * TM);
   return d;
 }
+/* ---------- town navigation (per spider size): a 1-unit grid of the cells a spider of span L can stand in (tall buildings
+   = walls inflated by the push radius, the log box, the tank edge), its connected areas, and A* routes around the footprints.
+   planRoute() still handles the log; cityRoute() replaces any leg that runs into a wall with an A* path (string-pulled). ---------- */
+const NAVG = { L: -1 }, N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+function navGrid(L) {
+  if (NAVG.L === L) return NAVG;
+  const nx = TW + 1, nz = TD + 1, free = new Uint8Array(nx * nz), comp = new Int32Array(nx * nz).fill(-1), W = walls(L), cl = L * .32, ed = L * .45, D = navDims(L);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) { const x = i - TW / 2, z = j - TD / 2;
+    let ok = Math.abs(x) <= TW / 2 - ed && Math.abs(z) <= TD / 2 - ed;
+    if (ok) { const q = logLocal(x, z); if (Math.abs(q.al) < D.hl && Math.abs(q.sd) < D.hw) ok = false; }
+    if (ok) for (const k of W) if (solidNear(k, x, z).d < cl) { ok = false; break; }
+    free[j * nx + i] = ok ? 1 : 0; }
+  let c = 0; const st = [];
+  for (let s = 0; s < free.length; s++) if (free[s] && comp[s] < 0) { comp[s] = c; st.push(s);
+    while (st.length) { const k = st.pop(), i = k % nx, j = k / nx | 0;
+      for (const [di, dj] of N8) { const a = i + di, b = j + dj, q = b * nx + a; if (a >= 0 && b >= 0 && a < nx && b < nz && free[q] && comp[q] < 0) { comp[q] = c; st.push(q); } } }
+    c++; }
+  return Object.assign(NAVG, { L, nx, nz, free, comp });
+}
+const navCell = (G, x, z) => clamp(Math.round(z + TD / 2), 0, G.nz - 1) * G.nx + clamp(Math.round(x + TW / 2), 0, G.nx - 1);
+function navNear(G, x, z) {                                      // nearest free cell (spiral out a little)
+  const c = navCell(G, x, z); if (G.free[c]) return c;
+  const i0 = c % G.nx, j0 = c / G.nx | 0;
+  for (let r = 1; r < 12; r++) for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) { if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+    const i = i0 + di, j = j0 + dj; if (i >= 0 && j >= 0 && i < G.nx && j < G.nz && G.free[j * G.nx + i]) return j * G.nx + i; }
+  return -1;
+}
+function navSegFree(G, a, b) { const n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / .5);
+  for (let k = 1; k < n; k++) { const t = k / n; if (!G.free[navCell(G, lerp(a.x, b.x, t), lerp(a.z, b.z, t))]) return false; } return true; }
+function astar(G, from, to) {                                    // 8-neighbour A*, octile heuristic → string-pulled waypoints (last = `to`)
+  const s = navNear(G, from.x, from.z), e = navNear(G, to.x, to.z); if (s < 0 || e < 0 || G.comp[s] !== G.comp[e]) return null;
+  const nx = G.nx, g = new Float32Array(G.free.length).fill(1e9), par = new Int32Array(G.free.length).fill(-1), done = new Uint8Array(G.free.length);
+  const ei = e % nx, ej = e / nx | 0, h = k => { const dx = Math.abs(k % nx - ei), dz = Math.abs((k / nx | 0) - ej); return Math.max(dx, dz) + .414 * Math.min(dx, dz); };
+  const heap = [[h(s), s]]; g[s] = 0;
+  const push = it => { heap.push(it); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0;
+    for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  while (heap.length) { const [, k] = pop(); if (done[k]) continue; done[k] = 1; if (k === e) break;
+    const i = k % nx, j = k / nx | 0;
+    for (const [di, dj] of N8) { const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= nx || b >= G.nz) continue; const q = b * nx + a;
+      if (!G.free[q] || done[q] || (di && dj && (!G.free[j * nx + a] || !G.free[b * nx + i]))) continue;
+      const ng = g[k] + (di && dj ? 1.414 : 1); if (ng < g[q]) { g[q] = ng; par[q] = k; push([ng + h(q), q]); } } }
+  if (par[e] < 0 && e !== s) return null;
+  const cells = []; for (let k = e; k >= 0; k = par[k]) cells.push(k); cells.reverse();
+  const P = cells.map(k => new V3(k % nx - TW / 2, 0, (k / nx | 0) - TD / 2)), out = []; let a = from;
+  for (let i = 1; i < P.length; i++) if (i === P.length - 1 || !navSegFree(G, a, P[i + 1])) { out.push(P[i]); a = P[i]; }
+  out.push(to.clone()); return out;
+}
+function cityRoute(pts, from, L, force) {                        // legs that hit a wall → A* around it (log legs are left to planRoute)
+  const G = navGrid(L), out = []; let a = from;
+  for (const b of pts) { if (!inChannel(a, L) && !inChannel(b, L) && (force || !navSegFree(G, a, b))) { const p = astar(G, a, b); if (p) { out.push(...p.slice(0, -1)); } }
+    out.push(b); a = b; }
+  return out;
+}
+const routeTo = (to, force) => cityRoute(planRoute(spider.pos, to, spider.span), spider.pos, spider.span, force);
 function follow_route(dt, speed) {
   const sp = spider; if (!sp.route.length) return true;
+  if (nav.backT > 0) { nav.backT -= dt * Math.min(TM, 3); accelerate(dt, nav.back.clone().multiplyScalar(speed * .5), sp.span * 5 * TM); sp.yawRate *= .9; return false; }   // backing off a wall
   const tgt = sp.route[0], last = sp.route.length === 1;
   const d = drive(dt, tgt, speed);
-  // progress watchdog: skip a waypoint that cannot be reached (blocked by a wall / rock face)
+  // progress watchdog: no progress for ~1.3 s → back off from the wall, then re-route around it (A*); stuck again → skip / give up
   if (d < nav.best - .3) { nav.best = d; nav.stuckT = 0; } else nav.stuckT += dt * Math.min(TM, 3);
-  if (d < (last ? 1 : 1.6) || nav.stuckT > 4) { sp.route.shift(); nav.best = Infinity; nav.stuckT = 0; }
+  if (d < (last ? Math.max(1, sp.span * .12) : Math.max(1.6, sp.span * .2))) { sp.route.shift(); nav.best = Infinity; nav.stuckT = 0; nav.stuckN = 0; }   // arrival radius grows with the body
+  else if (nav.stuckT > 1.3) { unstick(); if (nav.stuckN > 3) { sp.route = []; return true; } }
   return !sp.route.length;
 }
+function unstick() {
+  const sp = spider, L = sp.span; nav.stuckN = (nav.stuckN || 0) + 1; nav.stuckT = 0; nav.best = Infinity;
+  let bn = null, bd = 1e9; for (const k of SOLIDS) { const n = solidNear(k, sp.pos.x, sp.pos.z); if (n.d < bd) { bd = n.d; bn = n; } }
+  if (bn && bd < L * .9) nav.back.set(bn.nx, 0, bn.nz); else nav.back.set(-Math.sin(sp.yaw), 0, -Math.cos(sp.yaw));
+  nav.backT = .7;
+  const goal = sp.route[sp.route.length - 1];
+  if (nav.stuckN === 2 && sp.route.length > 1) sp.route.shift();                 // a waypoint it cannot reach: drop it
+  if (goal) { const r = routeTo(goal, true); if (r.length) sp.route = r; }
+}
+// a wander target: open ground (not wedged behind a tall wall), in the same connected area as the spider
+function goodSpot(x, z, L) { const G = navGrid(L), c = navCell(G, x, z), me = navNear(G, spider.pos.x, spider.pos.z);
+  if (!G.free[c] || (me >= 0 && G.comp[c] !== G.comp[me])) return false;
+  for (const k of walls(L)) if (solidNear(k, x, z).d < L * .36) return false; return true; }
 function wanderSpot() {
   const L = spider.span, D = navDims(L);
-  for (let k = 0; k < 40; k++) {
+  for (let k = 0; k < 60; k++) {
     const x = rand(-TW / 2 + 4, TW / 2 - 4), z = rand(-TD / 2 + 4, TD / 2 - 4), q = logLocal(x, z);
     if (!clearSpot(x, z) || !reachable({ x, z }, L)) continue;
     if (Math.abs(q.al) < D.hl + 1 && q.sd < D.hw + 1) continue;          // beside or behind the log
     if (Math.hypot(x - spider.pos.x, z - spider.pos.z) < L) continue;
+    if (!goodSpot(x, z, L)) continue;
     return new V3(x, 0, z);
   }
   return new V3(rand(-5, 5), 0, rand(0, 8));
@@ -180,12 +251,12 @@ function wanderSpot() {
 function pickWander() {
   const hideP = S.phase === 'premolt' ? .8 : (isNight() ? .12 : .5) + (S.led ? .25 : 0);
   if (Math.random() < hideP) { goBurrow('toBurrow'); return; }
-  spider.route = planRoute(spider.pos, wanderSpot(), spider.span);
+  spider.route = routeTo(wanderSpot());
   setMode('wander');
 }
 function goBurrow(mode) {                                       // too big for the log: just move off somewhere else
-  if (spider.span > LOG_FIT) { spider.route = planRoute(spider.pos, wanderSpot(), spider.span); setMode(mode === 'flee' ? 'flee' : 'wander'); return; }
-  spider.route = planRoute(spider.pos, BURROW, spider.span); setMode(mode); }
+  if (spider.span > LOG_FIT) { spider.route = routeTo(wanderSpot()); setMode(mode === 'flee' ? 'flee' : 'wander'); return; }
+  spider.route = routeTo(BURROW); setMode(mode); }
 function sensePrey(p, senseR) { // slit sensilla feel substrate vibration; the legs also touch prey that sits very close
   const d = Math.hypot(p.pos.x - spider.pos.x, p.pos.z - spider.pos.z);
   return !p.eaten && !p.held && p.burrowed <= 0 && ((p.moving && d < senseR * p.vib) || d < spider.span * .55);
@@ -250,7 +321,7 @@ function tick(dt) {
         if (p.kind === 'cricket' && p.jump) p.jump(p.speed * 1.4, 5); else { p.v = p.speed; p.t = rand(1.5, 2.5); }
       }
       if (nav.lost > 10 / M || sp.modeT > 45) { setMode('idle'); log('เหยื่ออยู่นิ่ง แมงมุมจับแรงสั่นไม่ได้ จึงเลิกล่า', true); break; }
-      if ((nav.replanT -= dt) <= 0 || !sp.route.length) { const old = sp.route[0]; sp.route = planRoute(sp.pos, nav.mem, L); nav.replanT = .5;
+      if ((nav.replanT -= dt) <= 0 || !sp.route.length) { const old = sp.route[0]; sp.route = routeTo(nav.mem); nav.replanT = .5;
         if (!old || old.distanceTo(sp.route[0]) > .5) { nav.best = Infinity; nav.stuckT = 0; } }
       const dm = Math.hypot(nav.mem.x - sp.pos.x, nav.mem.z - sp.pos.z);
       if (!felt && dm < L * .6) { brake(dt); faceTo(dt, nav.mem.x, nav.mem.z); }   // lost the trail at its last position: freeze and wait

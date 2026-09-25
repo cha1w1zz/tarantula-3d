@@ -203,6 +203,22 @@ function antenna(parent, from, dir, len, mat) { // pivots in its socket so it ca
   pv.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, .012, 4), mat));
   return pv;
 }
+// prey steering: is (x, z) blocked for a prey body (tank edge, rocks + pond, building walls, the log)?
+function preyBlocked(x, z, k) {
+  if (!inTank(x, z, 2)) return true;
+  for (const o of preyObs) if (Math.hypot(x - o.x, z - o.z) < o.r * 1.1 + .4) return true;
+  for (const b of SOLIDS) if (solidNear(b, x, z).d < .5 * (k || 1) + .2) return true;
+  const q = logLocal(x, z); return Math.abs(q.al) < LOG_HL + .6 && Math.abs(q.sd) < LOG_HW + .6;
+}
+// best heading out of here: open ground ahead (up to R), and when fleeing, away from the spider (open space vs distance)
+function openDir(p, sp, flee, R) {
+  R = R || 7; let best = p.face, bs = -1e9; const ax = p.pos.x - sp.pos.x, az = p.pos.z - sp.pos.z, al = Math.hypot(ax, az) || 1;
+  for (let i = 0; i < 16; i++) { const a = i / 16 * 6.2832 + rand(-.12, .12), dx = Math.sin(a), dz = Math.cos(a); let free = 0;
+    for (let r = .7; r <= R; r += .7) { if (preyBlocked(p.pos.x + dx * r, p.pos.z + dz * r, p.k)) break; free = r; }
+    const s = free / R * 2 - (free < 1.5 ? 3 : 0) + (flee ? (dx * ax + dz * az) / al * 1.7 : .4 * Math.cos(a - p.face)) - (p.stuckA != null ? .8 * Math.max(0, Math.cos(a - p.stuckA)) : 0);
+    if (s > bs) { bs = s; best = a; } }
+  return best;
+}
 class Prey {
   constructor(kind) {
     this.kind = kind; this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
@@ -261,14 +277,15 @@ class Prey {
         else { this.burrowed = Math.min(1, this.burrowed + dt * .8); if (this.t < 0 && !threatNear) { this.rising = true; this.t = rand(1, 3); log('แมลงสาบดูเบียโผล่ขึ้นจากดิน'); } }
         this.v = 0;
       } else if (threatNear && sp.mode === 'hunt' && !(this.flushT > 0)) {
-        this.yaw = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z) + rand(-.4, .4); this.v = this.speed * 1.6;
+        if ((this.fleeDT = (this.fleeDT || 0) - dt) <= 0) { this.fleeDT = .5; this.yaw = openDir(this, sp, true); } this.v = this.speed * 1.6;
         if (Math.random() < dt * .35) { this.burrowed = .01; this.t = rand(8, 16); log('ดูเบียมุดลงดินหนีผู้ล่า แมงมุมจึงจับแรงสั่นไม่ได้', true); }
-      } else if (this.t < 0) { this.t = rand(1, 4); this.v = Math.random() < .55 ? this.speed * rand(.4, 1) : 0; this.yaw += rand(-1.5, 1.5); }
+      } else if (this.t < 0) { this.t = rand(1, 4); this.v = Math.random() < .55 ? this.speed * rand(.4, 1) : 0; if (!(this.unstuckT > 0)) this.yaw += rand(-1.5, 1.5); }
     } else {
       if (this.hop > 0) this.hop -= dt;
       if (this.crouch > 0) { this.crouch -= dt * tm; if (this.crouch <= 0) { this.crouch = 0; this.v = this.jv; this.vy = this.jvy; this.hop = .5; this.kick = .14; } }
-      else if (this.t < 0) { this.t = rand(.6, 2.5); if (Math.random() < .5) { this.yaw += rand(-1.5, 1.5); this.jump(this.speed * rand(1.2, 2), rand(5, 9)); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; this.yaw += rand(-1, 1); } }
-      if (threatNear && sp.mode === 'hunt' && !(this.flushT > 0) && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = this.face = Math.atan2(this.pos.x - sp.pos.x, this.pos.z - sp.pos.z); this.jump(this.speed * 2.2, 8); }
+      else if (this.t < 0) { this.t = rand(.6, 2.5); const turn = !(this.unstuckT > 0);
+        if (Math.random() < .5) { if (turn) this.yaw += rand(-1.5, 1.5); this.jump(this.speed * rand(1.2, 2), rand(5, 9)); } else { this.v = Math.random() < .5 ? this.speed * .4 : 0; if (turn) this.yaw += rand(-1, 1); } }
+      if (threatNear && sp.mode === 'hunt' && !(this.flushT > 0) && this.hop <= 0 && Math.random() < dt * .5) { this.yaw = this.face = openDir(this, sp, true); this.jump(this.speed * 2.2, 8); }
       // males chirp at night: forewings raised and rubbed together
       if (this.chirp > 0) this.chirp -= dt; else if (isNight() && this.v < .3 && this.y <= 0 && !threatNear && Math.random() < dt * .06) this.chirp = rand(1.2, 3);
     }
@@ -284,6 +301,15 @@ class Prey {
     for (const k of SOLIDS) { const n = solidNear(k, this.pos.x, this.pos.z), rr = .5 * this.k;      // building walls
       if (n.d < rr && this.y < k.h) { this.pos.x += n.nx * (rr - n.d); this.pos.z += n.nz * (rr - n.d); this.yaw = Math.atan2(n.nx, n.nz) + rand(-1, 1); } }
     if (pushOutOfLog(this.pos, .6)) this.yaw += Math.PI * rand(.6, 1.4);
+    // stuck watchdog: it wants to move but hardly gets anywhere (a corner, a wall) → turn out toward open ground, away from
+    // the way it was trying to go, and keep that heading for a moment (corners are fine to enter, never to stay in)
+    if (this.unstuckT > 0) this.unstuckT -= dt * tm;
+    if (this.sx == null) { this.sx = this.pos.x; this.sz = this.pos.z; this.want = 0; this.watchT = 0; }
+    this.want += (air ? 0 : v) * dt * tm; this.watchT += dt * tm;
+    if (this.watchT > 1.2) { const moved = Math.hypot(this.pos.x - this.sx, this.pos.z - this.sz);
+      if (this.want > .6 && moved < this.want * .3 && this.burrowed <= 0) { this.stuckA = this.face; this.yaw = this.face = openDir(this, sp, threatNear && sp.mode === 'hunt');
+        this.unstuckT = 1.5; this.fleeT = 1.5; this.fleeDT = 1.5; this.t = Math.max(this.t, 1.5); this.stuckN = (this.stuckN || 0) + 1; } else this.stuckA = null;
+      this.sx = this.pos.x; this.sz = this.pos.z; this.want = 0; this.watchT = 0; }
     const vy0 = this.vy;
     this.y += this.vy * dt; this.vy -= 30 * dt; if (this.y <= 0) { this.y = 0; this.vy = 0; if (this.kind === 'cricket' && this.v > this.speed) this.v *= .5; }
     // body follows the slope, noses up on take-off / down on the fall, squats before a jump, tips in or out while digging
