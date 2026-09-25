@@ -317,9 +317,12 @@ class Spider {
   // rock top far above the hip (or soil far below a ledge) and drags the leg through the rock
   foothold(l, v, hip) {
     const L = this.span, reach = L * .52, dx = v.x - hip.x, dz = v.z - hip.z; let best = null, bestBad = 1e9;
+    // while the hip is still over a roof, a foot keeps to the higher surface instead of dangling far down the
+    // wall: hind legs strongly, front legs only a little (they reach down first when the spider climbs down head-first)
+    let gh = -1e9; for (const k of SOLIDS) gh = Math.max(gh, gridY(k.grid, hip.x, hip.z)); const dropW = l.i >= 2 ? .9 : l.i === 1 ? .45 : .15;
     for (let k = 0; k <= 9; k++) {
       const f = 1 - k * .08, x = hip.x + dx * f, z = hip.z + dz * f, y = groundY(x, z) + L * .005;
-      let bad = Math.max(0, Math.hypot(x - hip.x, y - hip.y, z - hip.z) - reach);
+      let bad = Math.max(0, Math.hypot(x - hip.x, y - hip.y, z - hip.z) - reach) + Math.max(0, gh - y - L * .18) * dropW;
       for (let u = .2; u < .95; u += .15) { const over = groundY(hip.x + (x - hip.x) * u, hip.z + (z - hip.z) * u) - (hip.y + (y - hip.y) * u) - L * .07 * Math.sin(Math.PI * u);
         if (over > 0) bad += over; }
       if (bad <= 0) return v.set(x, y, z);
@@ -350,25 +353,39 @@ class Spider {
     let ty = Math.max(feet, cg - L * .02) + L * .088 * (1 - .28 * st.stalk) + st.rear * L * .05 + bob - st.hidden * L * .4;
     ty = lerp(ty, cg + L * .05, st.flip);
     const k = snap ? 1 : clamp(dt * 9, 0, 1);
-    this.bodyY = this.bodyY == null ? ty : lerp(this.bodyY, ty, k);
     let swingL = 0, swingR = 0; legs.forEach(l => { if (l.swing) l.s > 0 ? swingL++ : swingR++; });
-    const tp = -Math.atan2(front - back, L * .38) * .8 - st.rear * .55 - st.threat * .45 + st.stalk * .06 + st.eat * -.12;
+    let tp = -Math.atan2(front - back, L * .38) * .8, tpx = -st.rear * .55 - st.threat * .45 + st.stalk * .06 + st.eat * -.12;
     const tr = Math.atan2(left - right, L * .45) * .8 + (swingR - swingL) * .012 * clamp(speed / (L * .3), 0, 1);
-    this.pitchS = lerp(this.pitchS, tp, k); this.rollS = lerp(this.rollS, tr, k);
     // hard floor: sample the underside of carapace and abdomen after tilting, so a body straddling a rock rides over it
     // instead of sinking in (skipped while hiding in the burrow or lying on its back)
     const off = 1 - Math.max(st.hidden, st.flip);
+    let need = -1e9, ahead = -1e9, fA = -1e9, bA = -1e9;
     if (off > .01) {
       const e = this._eul || (this._eul = new THREE.Euler(0, 0, 0, 'YXZ')), v = this._v || (this._v = new V3());
-      e.set(this.pitchS, this.yaw, this.rollS); let floor = -1e9, ahead = -1e9;
-      const ax = this.vel.x * .35, az = this.vel.z * .35;             // where the body will be in a moment: rise early for a step (roof edge)
+      e.set(this.pitchS, this.yaw, this.rollS); let floor = -1e9;
+      const ax = this.vel.x * .45, az = this.vel.z * .45;             // where the body will be in a moment: rise early for a step (roof edge)
       for (const o of BODY_UNDER) { v.set(o[0] * L, o[1] * L, o[2] * L).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .012);
-        ahead = Math.max(ahead, groundY(this.pos.x + v.x + ax, this.pos.z + v.z + az) - v.y + L * .012); }
+        const ga = groundY(this.pos.x + v.x + ax, this.pos.z + v.z + az); ahead = Math.max(ahead, ga - v.y + L * .012);
+        if (o[2] > 0) fA = Math.max(fA, ga); else bA = Math.max(bA, ga); }
       for (const l of legs) { v.copy(l.hip).applyEuler(e); floor = Math.max(floor, groundY(this.pos.x + v.x, this.pos.z + v.z) - v.y + L * .025); }   // hips sit wider than the body
-      if (ahead > this.bodyY && !snap) this.bodyY = lerp(this.bodyY, ahead, clamp(dt * 6, 0, 1));
-      const need = floor - (1 - off) * L * .5;                         // hard floor, but a tall step is climbed fast rather than in one frame
-      if (need > this.bodyY) this.bodyY = snap ? need : Math.min(need, this.bodyY + L * 4 * dt);
+      need = floor - (1 - off) * L * .5;
+      // climbing: the head comes up first at a roof edge ahead (front legs reach up), and dips first going down
+      if (!snap) tp -= clamp(Math.atan2(fA - bA, L * .42), -.55, .6) * .75 * off;
     }
+    tp = clamp(tp, -.62, .5) + tpx;                                        // nose up ≤ ~35° on a wall edge, down ≤ ~29°
+    ty = Math.max(ty, need, ahead > -1e8 ? lerp(ty, ahead, .6) : ty);
+    // the body never pops up or drops: its height follows the target at a capped speed (≈ a step per stride), faster only
+    // when the floor would otherwise cut into it; pitch and roll turn at a capped rate too
+    if (this.bodyY == null || snap) this.bodyY = Math.max(ty, need);
+    else {
+      const up = L * (need > this.bodyY ? 1.4 : 1.05), dn = L * .9;
+      this.vy = lerp(this.vy || 0, clamp((ty - this.bodyY) * 7, -dn, up), clamp(dt * 12, 0, 1));
+      this.bodyY += this.vy * dt;
+      if (need - this.bodyY > L * .12) this.bodyY = need - L * .12;       // never deeper than this into a surface
+    }
+    this.climbLag = off > .01 ? clamp((Math.max(need, ahead) - this.bodyY) / L, 0, 1) : 0;   // game.js slows the walk while the body catches up
+    const pr = snap ? 9 : 2.6 * dt;
+    this.pitchS += clamp(lerp(this.pitchS, tp, k) - this.pitchS, -pr, pr); this.rollS += clamp(lerp(this.rollS, tr, k) - this.rollS, -pr, pr);
     this.root.position.set(this.pos.x, this.bodyY, this.pos.z);
     this.root.rotation.set(this.pitchS * (1 - st.flip), this.yaw, this.rollS * (1 - st.flip) + st.flip * Math.PI);
     this.root.updateMatrixWorld(true);
