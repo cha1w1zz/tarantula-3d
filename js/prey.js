@@ -351,6 +351,6 @@ class Prey {
     this.mats.forEach(m => { const tr = op < .999; if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; } m.opacity = op; m.depthWrite = !tr; });
     this.mesh.traverse(o => { if (o.isMesh) o.castShadow = op > .5; });
   }
-  remove() { this.eaten = true; this.held = false; scene.remove(this.mesh); this.mesh.traverse(o => o.geometry && o.geometry.dispose()); this.mats.forEach(m => { envMats.delete(m); m.dispose(); }); }
+  remove() { this.eaten = true; this.held = false; if (this.bubble) { this.bubble.remove(); this.bubble = null; } scene.remove(this.mesh); this.mesh.traverse(o => o.geometry && o.geometry.dispose()); this.mats.forEach(m => { envMats.delete(m); m.dispose(); }); }
 }
 
