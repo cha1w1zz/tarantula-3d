@@ -505,25 +505,15 @@ const CITY = (() => {
     },
   };
 
-  /* ---------- the town plan (back row faces the street at z ≈ -20; right strip faces the street at x ≈ 33) ---------- */
-  const E = -Math.PI / 2, W = Math.PI / 2;
-  const PLAN = [
-    { kind: 'wood', x: -50.3, z: -29.5, w: 12, d: 11, col: '#cfc2a4', kaw: '#666d76', sign: 0 },
-    { kind: 'row', x: -38.5, z: -29.5, w: 8, d: 11, f: 3, tile: T.TILE, col: '#b48f74', lean: .12, neon: 6, fl: 1.5 },
-    { kind: 'row', x: -27.5, z: -29, w: 9, d: 10, f: 2, tile: T.PLAST, col: '#bfb49c', flat: 1, hsign: SHOKUDO },
-    { kind: 'office', x: -15, z: -29.5, w: 11, d: 11, f: 5, tile: T.TILE, col: '#c7bba2', sign: 1 },
-    { kind: 'ruin', x: -2, z: -29.5, w: 10, d: 11, col: '#a8a59c' },
-    { kind: 'wood', x: 9.5, z: -29, w: 10, d: 10, col: '#bfb49c', kaw: '#6f6258', caved: 1 },
-    { kind: 'row', x: 20, z: -29.5, w: 8, d: 11, f: 3, tile: T.CONC, col: '#a9b0a8', neon: 5, fl: .37 },
-    { kind: 'mansion', x: 31, z: -30, w: 11, d: 12, f: 7, col: '#d0c8b8' },
-    { kind: 'row', x: 48, z: -30, w: 15, d: 12, f: 4, tile: T.TILE, col: '#8fa39a', neon: 7, fl: .71, tank: 1 },
-    { kind: 'store', x: 46, z: -8, w: 12, d: 15, rot: E, col: '#d8d4ca' },
-    { kind: 'wood', x: 45, z: 7, w: 12, d: 12, rot: E, col: '#c9bfa6', kaw: '#6d6660', sign: 4, hsign: SHOKUDO },
-    { kind: 'row', x: 45, z: 24, w: 11, d: 12, rot: E, f: 2, tile: T.PLAST, col: '#cbb89a', sign: 3 },
-    { kind: 'wood', x: 24.5, z: 17, w: 8, d: 8, rot: W, col: '#b8ad96', kaw: '#6e6660' },
-    { kind: 'shed', x: 24, z: 3, w: 7, d: 5, rot: W, hh: 3.6, col: '#8f9291' },
-    { kind: 'shed', x: 25, z: 31, w: 6, d: 5, rot: W, hh: 4.2, col: '#7f8a86' },
-  ];
+  /* ---------- the town plan: js/lots.js (LOTS, loaded before world.js); extra building kinds: js/city2.js (CITY_EXT) ---------- */
+  const RECTS = { AC, BAR, STOP, FOOT, MANHOLE, BAND, BANDPLAIN, CLEAN, SHOKUDO, DOORW, DOORS, SHOP };
+  const KIT = { T, TS, R, rr, pick, lin, hash, BODY, DECO, MOSSB, MC, MOSSC, face, wall, box, tri, cyl, tube, lump, decal, mossAlong, mossRect,
+    sides, at, onWall, wallBox, sideFace, windowAt, windowRow, acUnit, roofAC, vines, ledge, parapet, block, shutter, awning, projSign, roofSign, tank, vending,
+    withM, tr, M4, worldOf, WINR, VS, RECTS, props, KIND, ctx: () => ctx, strip: (...a) => strip(...a), groundDecal: (...a) => groundDecal(...a),
+    GREY, ROOFC, SHUTBOX, FRAME, TANKC, DARKM, ACC, WIRE, POLEC, WOODC, RUST };
+  const EXT = typeof CITY_EXT === 'function' ? CITY_EXT(KIT) : {};
+  Object.assign(KIND, EXT.kinds || {});
+  const PLAN = LOTS.map(D => Object.assign({}, D, { tile: typeof D.tile === 'string' ? T[D.tile] : D.tile, hsign: typeof D.hsign === 'string' ? RECTS[D.hsign] : D.hsign }));
   PLAN.forEach(D => {
     const { x, z, w, d } = D, rot = D.rot || 0, c = Math.cos(rot), s = Math.sin(rot);
     let lo = 1e9, hi = -1e9;
@@ -538,7 +528,7 @@ const CITY = (() => {
     for (let k = i0; k < BODY.i.length; k++) { const q = BODY.i[k] * 3; pos.set([BODY.p[q], BODY.p[q + 1], BODY.p[q + 2]], (k - i0) * 3); }
     const solid = new THREE.BufferGeometry(); solid.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     if (D.anchor) anchors.push(worldOf(...D.anchor));
-    buildings.push({ x, z, w, d, rot, h: D.h, kind: D.kind, solid });
+    buildings.push({ x, z, w, d, rot, h: D.h, kind: D.kind, solid, garden: !!D.garden });
   });
   setM(M4());
 
@@ -579,6 +569,8 @@ const CITY = (() => {
   function wire(a, b, sag) { const pts = []; for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push(new V3().lerpVectors(a, b, t).setY(lerp(a.y, b.y, t) - sag * 4 * t * (1 - t))); } tube(pts, .05, WIRE); }
   for (let k = 0; k < POLES.length - 1; k++) for (let e = 0; e < 5; e++) wire(armP[k][e], armP[k + 1][e], .5 + armP[k][e].distanceTo(armP[k + 1][e]) * .045 + (k === 2 || k === 3 ? 1.2 : 0));
   anchors.forEach(a => { let best = armP[0]; armP.forEach(p => { if (p[3].distanceTo(a) < best[3].distanceTo(a)) best = p; }); wire(best[R() < .5 ? 3 : 4], a, .6); });
+
+  if (EXT.decorate) { setM(M4()); ctx = { top: -99, moss: .5, inner: 0 }; EXT.decorate(KIT); setM(M4()); }
 
   /* ---------- materials + merged meshes ---------- */
   const U = { uNight: { value: 0 }, uTime: { value: 0 } };
