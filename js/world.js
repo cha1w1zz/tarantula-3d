@@ -14,6 +14,8 @@ const PERLIN = new THREE.ImprovedNoise();
 function fbm(x, y, z, oct) { let a = .5, f = 1, s = 0; for (let i = 0; i < (oct || 3); i++) { s += a * PERLIN.noise(x * f, y * f, z * f); a *= .5; f *= 2.03; } return s; }
 
 /* ---------- renderer / camera ---------- */
+// static meshes that never move after load: js/perf.js merges the ones sharing a material into one draw call (after webs.js has ray cast them)
+const STATIC_BATCH = [];
 const canvas = $('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.shadowMap.enabled = true;
@@ -477,7 +479,7 @@ ROCKS.forEach(k => {
     c.convertSRGBToLinear(); col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mesh = new THREE.Mesh(geo, rockMat); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh);
+  const mesh = new THREE.Mesh(geo, rockMat); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh); STATIC_BATCH.push(mesh);
   k.grid = heightGrid(p, idx, i => cnt[i] && p.getY(i) > soil[i] - .3);
 });
 
@@ -620,7 +622,7 @@ const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
       const g = base.clone(), gp = g.attributes.position; g.setIndex(keep(thr));
       for (let i = 0; i < gp.count; i++) gp.setY(i, gy[i] + .04 + mound[i] + (mask[i] > thr ? lift : 0));
       g.computeVertexNormals(); g.translate(cx, 0, cz);
-      const mesh = new THREE.Mesh(g, mat); mesh.receiveShadow = true; scene.add(mesh);
+      const mesh = new THREE.Mesh(g, mat); mesh.receiveShadow = true; scene.add(mesh); STATIC_BATCH.push(mesh);
     };
     layer(0, .01, baseMat);
     shellMats.forEach((mat, l) => layer(H * (l + 1) / N, .3, mat));
@@ -662,7 +664,7 @@ function fernSway(mat) {
       const sg = new THREE.TubeGeometry(curve, 24, .05, 5), rootA = new Float32Array(sg.attributes.position.count * 4);
       for (let i = 0; i < rootA.length; i += 4) rootA.set([fx, by, fz, size], i);
       sg.setAttribute('aRoot', new THREE.BufferAttribute(rootA, 4));
-      const stem = new THREE.Mesh(sg, stemMat); stem.castShadow = true; scene.add(stem);
+      const stem = new THREE.Mesh(sg, stemMat); stem.castShadow = true; scene.add(stem); STATIC_BATCH.push(stem);
       for (let k = 2; k <= 22; k++) { const t = k / 23, p = P(t); if (!inTank(p.x, p.z, 1.2)) continue;
         const ll = len * .2 * Math.pow(1 - t, .55) + .25;
         [-1, 1].forEach(sd => { const ang = yaw + sd * rand(1.1, 1.35), vx = Math.sin(ang), vz = Math.cos(ang);
@@ -708,14 +710,14 @@ function addFoliage(geo, mat, depthMat, list, o) {
     mesh.setMatrixAt(i, m); mesh.setColorAt(i, c);
     const base = new V3().setFromMatrixPosition(m), tip = o.tip.clone().applyMatrix4(m), mid = o.mid.clone().applyMatrix4(m), low = o.low.clone().applyMatrix4(m);
     L.push({ base, tip, mid, low, hi: tip.clone().lerp(mid, .5), ml: mid.clone().lerp(low, .5), len: tip.distanceTo(base), inv: new THREE.Matrix3().setFromMatrix4(m).invert(), D: new V3(), V: new V3(), ph: Math.random() * 6.28 });
-    if (!clumps.length || clumps[clumps.length - 1].g !== g) clumps.push({ g, i0: i, i1: i, box: new THREE.Box3() });
-    const cl = clumps[clumps.length - 1]; cl.i1 = i + 1; cl.box.expandByPoint(base).expandByPoint(tip);
+    if (!clumps.length || clumps[clumps.length - 1].g !== g) clumps.push({ g, i0: i, i1: i, box: new THREE.Box3(), reach: 0 });
+    const cl = clumps[clumps.length - 1]; cl.i1 = i + 1; cl.box.expandByPoint(base).expandByPoint(tip); cl.reach = Math.max(cl.reach, L[i].len);
   });
   clumps.forEach(cl => cl.box.expandByScalar(.6));
   mesh.castShadow = mesh.receiveShadow = true; mesh.customDepthMaterial = bendable(depthMat, o.gpuWind); mesh.frustumCulled = false; scene.add(mesh);
   foliage.push({ mesh, bend, L, clumps, k: o.k, c: o.c, wind: o.wind, gpu: !!o.gpuWind });
 }
-const _fp = new V3(), _fq = new V3(), _fo = new V3(), FWIND = new V3(.8, 0, .55).normalize();
+const _fp = new V3(), _fq = new V3(), _fo = new V3(), FWIND = new V3(.8, 0, .55).normalize(), _fnear = new Int32Array(512);
 // cols: flat [x, y, z, r, ...] spheres
 function updateFoliage(dt, cols) {
   dt = clamp(dt, 1e-3, 1 / 30);
@@ -723,8 +725,9 @@ function updateFoliage(dt, cols) {
   FERN_U.uPush.value.forEach((u, q) => q * 4 < cols.length ? u.fromArray(cols, q * 4) : u.set(0, -1e4, 0, 0));   // first colliders = spider body, knees, ankles
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
   for (let j = 0; j < cols.length; j += 4) { const r = cols[j + 3]; x0 = Math.min(x0, cols[j] - r); x1 = Math.max(x1, cols[j] + r); y0 = Math.min(y0, cols[j + 1] - r); y1 = Math.max(y1, cols[j + 1] + r); z0 = Math.min(z0, cols[j + 2] - r); z1 = Math.max(z1, cols[j + 2] + r); }
+  let nNear = 0;   // colliders that can reach the current clump (the rest can't touch its leaves: skipping them changes nothing)
   const push = (l, rest, w) => { // move the leaf point (rest + D·w) out of every collider it is inside
-    for (let j = 0; j < cols.length; j += 4) {
+    for (let q = 0; q < nNear; q++) { const j = _fnear[q];
       _fp.copy(rest).addScaledVector(l.D, w); const dx = _fp.x - cols[j], dy = _fp.y - cols[j + 1], dz = _fp.z - cols[j + 2], rr = cols[j + 3] + pad, d2 = dx * dx + dy * dy + dz * dz;
       if (d2 >= rr * rr) continue;
       const d = Math.sqrt(d2) || 1e-3, pen = Math.min((rr - d) / w, l.len * .6); l.D.x += dx / d * pen; l.D.y += dy / d * pen; l.D.z += dz / d * pen;   // capped per frame so a brush near the base can't fling the tip (loose enough to keep up with a fast walk)
@@ -732,7 +735,13 @@ function updateFoliage(dt, cols) {
   for (const f of foliage) {
     const A = f.bend.array, damp = Math.exp(-f.c * dt); let dirty = !f.gpu;
     for (const cl of f.clumps) {
-      const b = cl.box, hit = cols.length && b.min.x < x1 && b.max.x > x0 && b.min.y < y1 && b.max.y > y0 && b.min.z < z1 && b.max.z > z0;
+      const b = cl.box; nNear = 0;
+      if (cols.length && b.min.x < x1 && b.max.x > x0 && b.min.y < y1 && b.max.y > y0 && b.min.z < z1 && b.max.z > z0) {
+        // per clump: only colliders whose sphere (+ pad) comes within reach of a leaf point (a bent tip can swing up to ~2 leaf lengths off the rest box)
+        const e = 2 * cl.reach + pad;
+        for (let j = 0; j < cols.length && nNear < 512; j += 4) { const r = cols[j + 3] + e;
+          if (cols[j] + r > b.min.x && cols[j] - r < b.max.x && cols[j + 1] + r > b.min.y && cols[j + 1] - r < b.max.y && cols[j + 2] + r > b.min.z && cols[j + 2] - r < b.max.z) _fnear[nNear++] = j; } }
+      const hit = nNear > 0;
       if (f.gpu) { if (!hit && !cl.active) continue; cl.active = false; dirty = true; }   // wind is in the shader: only touched clumps need work
       for (let i = cl.i0; i < cl.i1; i++) {
         const l = f.L[i];
@@ -872,7 +881,7 @@ const glassGroup = new THREE.Group(); scene.add(glassGroup);
   const fm = track(new THREE.MeshStandardMaterial({ color: 0x141414, metalness: .85, roughness: .35 }), 1);
   const e = .6, bars = [];
   [-1, 1].forEach(a => [-1, 1].forEach(b => { bars.push([e, TH, e, a * TW / 2, TH / 2, b * TD / 2]); bars.push([TW + e, e, e, 0, b > 0 ? TH : -.2, a * TD / 2]); bars.push([e, e, TD, a * TW / 2, b > 0 ? TH : -.2, 0]); }));
-  bars.forEach(([w, h, d, x, y, z]) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), fm); m.position.set(x, y, z); scene.add(m); });   // lid lights sit inside the frame: bars cast no shadow
+  bars.forEach(([w, h, d, x, y, z]) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), fm); m.position.set(x, y, z); scene.add(m); STATIC_BATCH.push(m); });   // lid lights sit inside the frame: bars cast no shadow
   const base = new THREE.Mesh(new THREE.BoxGeometry(TW + 1.4, 1.8, TD + 1.4), fm); base.position.y = -1.1; base.receiveShadow = true; scene.add(base);
 }
 const table = new THREE.Mesh(new THREE.PlaneGeometry(260, 160), track(new THREE.MeshStandardMaterial({ map: TABLE.map, normalMap: TABLE.normalMap, roughness: .5, color: 0x9a8a7a }), .45));

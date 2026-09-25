@@ -282,7 +282,14 @@ const _sayV = new V3(), _sayC = new V3();
 // hidden behind a building (camera → head line passes under a roof) or far away = no bubble; checked 6× a second so it doesn't flicker
 function sayBlocked(q) { const c = camera.position, d = c.distanceTo(q); if (d > 95) return true;
   for (let i = 1; i < 16; i++) { _sayC.lerpVectors(c, q, i / 16); if (_sayC.y < groundY(_sayC.x, _sayC.z) - .1) return true; } return false; }
+// DOM: all size/rect reads happen first, all position writes at the end (reading after a write forced a page re-layout every frame)
+const _talkW = [];
 function preyTalk(dt) {
+  _preyTalk(dt);
+  for (const [el, x, y] of _talkW) { el.style.left = x + 'px'; el.style.top = y + 'px'; }
+  _talkW.length = 0;
+}
+function _preyTalk(dt) {
   prey.forEach(p => { if (p.kind !== 'human') return; p.sayCD = (p.sayCD || 0) - dt; p.sayT = (p.sayT || 0) - dt;
     let el = p.bubble; if (!el) { el = p.bubble = document.createElement('div'); el.className = 'say hum'; document.body.appendChild(el); }
     if (p.eaten) { el.remove(); return; }
@@ -302,7 +309,7 @@ function preyTalk(dt) {
       if (x + w / 2 > r.left - 6 && x - w / 2 < r.right + 6 && bot > r.top - 6 && top < r.bottom + 6) dy += y < (r.top + r.bottom) / 2 + h / 2 ? -Math.min(bot - r.top + 6, 60) : Math.min(r.bottom - top + 6, 60); }
     p.ody = lerp(p.ody || 0, dy, clamp(dt * 6, 0, 1));
     if (p.bx == null) { p.bx = x; p.by = y; } const k = clamp(dt * 14, 0, 1); p.bx = lerp(p.bx, x, k); p.by = lerp(p.by, y, k);
-    el.style.left = p.bx + 'px'; el.style.top = Math.max(50, p.by + p.ody) + 'px';
+    _talkW.push([el, p.bx, Math.max(50, p.by + p.ody)]);
   });
 }
 

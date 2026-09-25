@@ -240,10 +240,19 @@ let GRASS = null;
 {
   const geo = new THREE.IcosahedronGeometry(1, 1), p = geo.attributes.position;   // ปุยเล็กมาก ใช้โพลิกอนน้อยพอ (~7k ปุย × 80 สามเหลี่ยม)
   for (let i = 0; i < p.count; i++) { const v = new V3().fromBufferAttribute(p, i); v.multiplyScalar(1 + PERLIN.noise(v.x * 2.5, v.y * 2.5, v.z * 2.5) * .22); p.setXYZ(i, v.x, v.y, v.z); }
+  { // ครึ่งล่างของปุยจมอยู่ในหิน/ขอนเสมอ (มองไม่เห็น): ตัดสามเหลี่ยมที่อยู่ใต้ผิวทิ้ง ~ครึ่งหนึ่ง (ปุยมี ~8k ก้อน = ประหยัด ~300k สามเหลี่ยมต่อเฟรม)
+    const uv = geo.attributes.uv, P = [], U = [];
+    for (let f = 0; f < p.count; f += 3) { if (Math.max(p.getY(f), p.getY(f + 1), p.getY(f + 2)) < -.05) continue;
+      for (let k = f; k < f + 3; k++) { P.push(p.getX(k), p.getY(k), p.getZ(k)); U.push(uv.getX(k), uv.getY(k)); } }
+    // แบบมีดัชนี (จุดยอดที่ซ้ำกันใช้ร่วมกัน): ~5 เท่าน้อยกว่าในการคำนวณจุดยอด; หน้าเหลี่ยมเหมือนเดิมด้วย flatShading (normal ต่อหน้าคำนวณในพิกเซล)
+    const at = new Map(), pos = [], uvs = [], ix = [];
+    for (let i = 0; i < P.length / 3; i++) { const key = [P[i * 3], P[i * 3 + 1], P[i * 3 + 2], U[i * 2], U[i * 2 + 1]].map(v => v.toFixed(5)).join();
+      let k = at.get(key); if (k === undefined) { k = pos.length / 3; at.set(key, k); pos.push(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]); uvs.push(U[i * 2], U[i * 2 + 1]); } ix.push(k); }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); geo.deleteAttribute('normal'); geo.setIndex(ix); }
   geo.computeVertexNormals();
-  const mat = track(new THREE.MeshStandardMaterial({ map: MOSS.map, roughness: 1, color: 0xffffff }), .2);
+  const mat = track(new THREE.MeshStandardMaterial({ map: MOSS.map, roughness: 1, color: 0xffffff, flatShading: true }), .2);
   lookShader(mat, 'mossfuzz', sh => { sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-    { float fz = 1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))); totalEmissiveRadiance += diffuseColor.rgb * (fz * fz * 1.2 + .12); }`); });   // ขอบปุยสว่าง = ดูนุ่ม
+    { float fz = 1.0 - abs(dot(normal, normalize(vViewPosition))); totalEmissiveRadiance += diffuseColor.rgb * (fz * fz * 1.2 + .12); }`); });   // ขอบปุยสว่าง = ดูนุ่ม
   const list = [], q = new THREE.Quaternion(), c = new THREE.Color();
   const puff = (x, y, z, n, s) => {                                  // n = ทิศผิวที่เกาะ
     q.setFromUnitVectors(UP, n); dummy.position.set(x, y, z); dummy.quaternion.copy(q); dummy.rotateY(LR() * 6.283);

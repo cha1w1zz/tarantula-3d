@@ -474,23 +474,46 @@ const composer = new THREE.EffectComposer(renderer, new THREE.WebGLRenderTarget(
 composer.addPass(new THREE.RenderPass(scene, camera));
 const bokeh = new THREE.BokehPass(scene, camera, { focus: 50, aperture: .0002, maxblur: .008, width: 2, height: 2 });
 { // depth for DOF: skip glass, dust and additive FX so they don't punch sharp holes in the blur
-  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, water, water.userData.tint, ...ripples, ...drops, ...(typeof FX_HIDE !== 'undefined' ? FX_HIDE : [])];
-  bokeh.render = function (...a) { const h = hide(), vis = h.map(o => o.visible); h.forEach(o => o.visible = false); orig(...a); h.forEach((o, i) => o.visible = vis[i]); };
+  // The depth target is only 2×2 texels (BokehPass r128 has no setSize, so it keeps the size given above): the blur per screen
+  // quarter comes from 4 depth samples. Re-rendering the whole scene for 4 pixels every frame was ~1/3 of all triangles,
+  // so the depth is refreshed every DOF_EVERY frames (same look; the 4 samples just lag a few frames). The blur itself runs every frame.
+  const DOF_EVERY = 3, hid = [], vis = [], cc = new THREE.Color(); let n = 0;
+  const hide = () => { hid.length = 0; hid.push(glassGroup, dust, beams, roomBokeh, water, water.userData.tint, ...ripples, ...drops, ...(typeof FX_HIDE !== 'undefined' ? FX_HIDE : [])); return hid; };
+  bokeh.render = function (r, writeBuffer, readBuffer) {
+    r.getClearColor(cc); const ca = r.getClearAlpha(), ac = r.autoClear; r.autoClear = false; r.setClearColor(0xffffff); r.setClearAlpha(1);
+    if (n++ % DOF_EVERY === 0) {
+      const h = hide(); vis.length = 0; h.forEach(o => { vis.push(o.visible); o.visible = false; });
+      this.scene.overrideMaterial = this.materialDepth; r.setRenderTarget(this.renderTargetDepth); r.clear(); r.render(this.scene, this.camera); this.scene.overrideMaterial = null;
+      h.forEach((o, i) => o.visible = vis[i]); }
+    this.uniforms.tColor.value = readBuffer.texture; this.uniforms.nearClip.value = this.camera.near; this.uniforms.farClip.value = this.camera.far;
+    if (this.renderToScreen) r.setRenderTarget(null); else { r.setRenderTarget(writeBuffer); r.clear(); }
+    this.fsQuad.render(r);
+    r.setClearColor(cc); r.setClearAlpha(ca); r.autoClear = ac; };
 }
 composer.addPass(bokeh);
 const bloom = new THREE.UnrealBloomPass(new V2(2, 2), .38, .5, .86); composer.addPass(bloom);
 const grade = new THREE.ShaderPass(GradeShader); composer.addPass(grade);
 const fxaa = new THREE.ShaderPass(THREE.FXAAShader); composer.addPass(fxaa);
 renderer.shadowMap.autoUpdate = false;              // shadows once per frame, not again for the DOF depth pass
+const SHADOW_LIGHTS = [led, sun, lamp];
 function setShadowRes(n) { [[led, n], [lamp, n / 2]].forEach(([l, s]) => { if (l.shadow.mapSize.x !== s) { l.shadow.mapSize.set(s, s); if (l.shadow.map) { l.shadow.map.dispose(); l.shadow.map = null; } } }); }
-function resize() {
-  const hi = quality === 'high', lo = quality === 'min', w = innerWidth, h = innerHeight, pr = hi ? Math.min(devicePixelRatio, 2) : lo ? Math.min(devicePixelRatio, 1) * .75 : Math.min(devicePixelRatio, 1.25);
+// render resolution: the quality's pixel ratio × DRS.k (dynamic resolution, see autoQuality), never below the quality's floor
+const DRS = { k: 1, t: 0, n: 0, warm: 0, slow: 0, good: 0, cap: 1, capT: 0, upT: 99, user: false };
+const prBase = q => { const d = devicePixelRatio || 1; return q === 'high' ? Math.min(d, 2) : q === 'min' ? Math.min(d, 1) * .75 : Math.min(d, 1.25); };
+const prFloor = q => q === 'high' ? ((devicePixelRatio || 1) >= 1.5 ? 1 : .8) : q === 'min' ? .6 : .7;
+const drsMin = () => Math.min(1, prFloor(quality) / prBase(quality));
+function applyRes() {
+  const w = innerWidth, h = innerHeight, pr = Math.max(prBase(quality) * DRS.k, Math.min(prBase(quality), prFloor(quality)));
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
+  fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
+}
+function resize() {
+  const hi = quality === 'high', lo = quality === 'min', w = innerWidth, h = innerHeight;
+  applyRes();
   camera.aspect = w / h;
   camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64); if (cine) camera.fov = Math.max(camera.fov, 50);   // portrait phones: widen so the tank still fits
   if (eyes) camera.fov = Math.max(camera.fov, 66);   // his eyes: a wide human field of view
   camera.updateProjectionMatrix();
-  fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
   bokeh.enabled = hi; bloom.enabled = hi; grade.uniforms.uCA.value = hi ? .007 : lo ? 0 : .004;   // lens fringe: off on the lowest mode
   setShadowRes(hi ? 2048 : 1024);
@@ -612,7 +635,8 @@ function viewCam(dt) {
   if (viewT > 0) { const k = clamp(dt / viewT, 0, 1); viewT -= dt; off.lerp(viewDir, k).normalize(); r = lerp(r, Math.min(R, controls.maxDistance), k); } else off.copy(viewDir);
   camera.position.copy(controls.target).addScaledVector(off, r); }
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
-$('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
+function setQuality(q) { quality = q; $('tQual').textContent = QUAL_TXT[q]; DRS.k = 1; DRS.cap = 1; DRS.slow = DRS.good = 0; DRS.warm = 0; resize(); }
+$('tQual').onclick = () => { DRS.user = true; setQuality({ high: 'low', low: 'min', min: 'high' }[quality]); };   // a manual choice: no more automatic mode drops (resolution scaling stays)
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
 function mistFx() {
   haze = 1;
@@ -669,20 +693,33 @@ S = newState('', 'lividus'); spider = new Spider('lividus', 5); pickWander();
 resize();
 const clock = new THREE.Clock(); let hudT = 0, saveT = 0;
 // background & fog are shaded in linear space, so convert the sRGB picks (otherwise the room turns milky grey)
-const BG_DAY = new THREE.Color(0), BG_NIGHT = new THREE.Color(0), camPrev = new V3();
+const BG_DAY = new THREE.Color(0), BG_NIGHT = new THREE.Color(0), camPrev = new V3(), _sayP = new V3();
 let FOG0 = 0;
 // light shafts falling into the gaps beside the buildings (film shot only): the same beam sheets as under the LED bar
 const cityBeamMat = beamMat(0xfff0d6);
 { const g = new THREE.PlaneGeometry(4, TH * 1.1); g.translate(0, TH * .55, 0);
   SOLIDS.slice(0, 7).forEach((k, i) => { const m = new THREE.Mesh(g, cityBeamMat), side = i % 2 ? 1 : -1, d = k.hw + 2.2;
     m.position.set(k.x + k.c * d * side, groundY(k.x, k.z) - 1, k.z - k.s * d * side); m.rotation.set(-.32, rand(-.4, .4), .18); beams.add(m); }); }
-// auto quality: if the first seconds run below ~30 fps (e.g. Chrome without GPU acceleration), switch to the fast mode once
-let perfN = 0, perfSum = 0, perfDone = false;
+// auto quality (every frame, from the real frame time): keep ~60 fps smoothly.
+// 1) dynamic resolution: each 1 s window below ~50 fps lowers the render scale 15% (down to the mode's floor); 3 good windows (≥ 57 fps)
+//    raise it again, but not back to a scale that just failed (remembered 30 s) so it doesn't pump up and down.
+// 2) still slow at the floor for 3 s → next lighter mode (high → fast; fast → lowest only when very slow). Never automatic after a manual pick.
 function autoQuality(raw) {
-  if (perfDone || quality !== 'high' || document.hidden) return;
-  if (++perfN < 60) return; // skip warm-up frames (shader compile)
-  perfSum += raw;
-  if (perfN >= 150) { perfDone = true; if (perfSum / 90 > 1 / 30) { $('tQual').click(); log('เครื่องนี้ภาพกระตุก เลยสลับเป็นโหมด ⚡ ภาพเร็ว ให้อัตโนมัติ (กดปุ่มเพื่อกลับเป็นภาพสูงได้)', true); } }
+  if (document.hidden || raw > .25) return;            // tab switches / hitches are not the device's steady speed
+  if (DRS.warm < 90) { DRS.warm++; return; }            // skip warm-up frames (shader compile)
+  DRS.t += raw; DRS.n++; DRS.capT = Math.max(0, DRS.capT - raw); DRS.upT += raw; if (DRS.capT <= 0) DRS.cap = 1;
+  if (DRS.t < 1) return;
+  const ft = DRS.t / DRS.n, kMin = drsMin(); DRS.t = DRS.n = 0;
+  if (ft > 1 / 50) {
+    DRS.good = 0;
+    if (DRS.k > kMin + 1e-3) { if (DRS.upT < 4) { DRS.cap = DRS.k; DRS.capT = 30; } DRS.k = Math.max(kMin, DRS.k * .85); applyRes(); return; }
+    if (++DRS.slow >= 3 && !DRS.user) {
+      if (quality === 'high' && ft > 1 / 42) { setQuality('low'); log('เครื่องนี้ภาพกระตุก เลยสลับเป็นโหมด ⚡ ภาพเร็ว ให้อัตโนมัติ (กดปุ่มเพื่อกลับเป็นภาพสูงได้)', true); }
+      else if (quality === 'low' && ft > 1 / 26) { setQuality('min'); log('เครื่องนี้ยังกระตุกอยู่ เลยลดเป็นโหมด 🐢 ภาพต่ำสุด ให้อัตโนมัติ (กดปุ่มเพื่อเปลี่ยนกลับได้)', true); }
+      DRS.slow = 0; }
+    return; }
+  DRS.slow = 0;
+  if (ft < 1 / 57 && ++DRS.good >= 3 && DRS.k < 1) { const up = Math.min(1, DRS.k / .85); DRS.good = 0; if (up < DRS.cap - 1e-3 || DRS.cap >= 1 && up >= 1) { DRS.k = up; DRS.upT = 0; applyRes(); } }
 }
 function loop() {
   const raw = clock.getDelta(), dt = Math.min(raw, .05), now = clock.elapsedTime;
@@ -768,10 +805,12 @@ function loop() {
   BLOOD.update(dt); preyTalk(dt);
   if (typeof contactShadows === 'function') contactShadows();   // soft contact shadows under feet/body/prey (js/look.js)
   renderer.shadowMap.needsUpdate = true;
+  // a light that is off (sun at night, LED / lamp switched off) adds nothing, so its shadow map needn't be re-rendered (saves a whole scene pass each)
+  for (let i = 0; i < 3; i++) { const l = SHADOW_LIGHTS[i]; l.shadow.autoUpdate = false; l.shadow.needsUpdate = l.intensity > .002; }
   composer.render();
   // speech bubble floats above the spider
   const sb = $('say'); sayBubbleT -= dt;
-  if (sayBubbleT > 0 && spider && !previewing) { const q = spider.root.position.clone(); q.y += spider.span * .22; q.project(camera);
+  if (sayBubbleT > 0 && spider && !previewing) { const q = _sayP.copy(spider.root.position); q.y += spider.span * .22; q.project(camera);
     const on = q.z < 1 && Math.abs(q.x) < .92 && q.y < .9 && q.y > -1; sb.classList.toggle('on', on && sayBubbleT > .3);   // off screen = hidden, not pinned to the edge
     if (on) { sb.style.left = clamp((q.x * .5 + .5) * innerWidth, 130, innerWidth - 130) + 'px'; sb.style.top = Math.max(60, (-q.y * .5 + .5) * innerHeight) + 'px'; } }
   else sb.classList.remove('on');

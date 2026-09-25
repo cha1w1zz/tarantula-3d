@@ -292,11 +292,49 @@ class Spider {
     this.ownMats = new Set(Object.values(m).concat(this.tint.map(e => e[0])));
     const lvl = typeof envLevel === 'number' && envLevel >= 0 ? envLevel : .75;
     this.ownMats.forEach(mm => { mm.envMapIntensity = mm.userData.env * lvl; });
+    this.batchLegs();
+  }
+  // Draw calls: the 66 leg/palp segments + knee knobs and their 38 hair meshes were ~100 draw calls per pass (+ 66 per shadow map).
+  // They are drawn as 2 skinned meshes instead (segments+knobs, hair): each original mesh becomes a "bone" of the skeleton.
+  // The originals stay in the scene, invisible, and are still moved by the IK, hit by clicks (pickables) and copied by exuvia().
+  batchLegs() {
+    this.skinned = []; this.skel = null;
+    if (!renderer.capabilities.floatVertexTextures) return;   // no bone texture on this GPU: keep the separate meshes
+    const bones = this.worldMeshes, solid = [], hair = [];
+    bones.forEach((b, i) => { solid.push([b.geometry, i]); b.children.forEach(h => { if (h.isMesh) hair.push([h.geometry, i]); }); });
+    const merge = list => {
+      const names = Object.keys(list[0][0].attributes); let nv = 0, ni = 0;
+      list.forEach(([g]) => { nv += g.attributes.position.count; ni += g.index.count; });
+      const out = {}, I = new Uint32Array(ni), SI = new Uint16Array(nv * 4), SW = new Float32Array(nv * 4); let v = 0, o = 0;
+      names.forEach(n => { out[n] = new Float32Array(nv * list[0][0].attributes[n].itemSize); });
+      list.forEach(([g, b]) => { const c = g.attributes.position.count;
+        names.forEach(n => { const a = g.attributes[n]; out[n].set(a.array.subarray(0, c * a.itemSize), v * a.itemSize); });
+        const ix = g.index.array; for (let i = 0; i < ix.length; i++) I[o++] = ix[i] + v;
+        for (let i = 0; i < c; i++) { SI[(v + i) * 4] = b; SW[(v + i) * 4] = 1; }
+        v += c; });
+      const G = new THREE.BufferGeometry();
+      names.forEach(n => G.setAttribute(n, new THREE.BufferAttribute(out[n], list[0][0].attributes[n].itemSize)));
+      G.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(SI, 4)); G.setAttribute('skinWeight', new THREE.BufferAttribute(SW, 4)); G.setIndex(new THREE.BufferAttribute(I, 1));
+      return G; };
+    const same = list => list.length && list.every(([g]) => g.index && Object.keys(g.attributes).sort().join() === Object.keys(list[0][0].attributes).sort().join());
+    if (!same(solid) || !same(hair)) return;
+    const skel = this.skel = new THREE.Skeleton(bones, bones.map(() => new THREE.Matrix4()));   // geometry is already in each bone's own space
+    const mk = (list, mat, cast) => { const sm = new THREE.SkinnedMesh(merge(list), mat); sm.bind(skel, new THREE.Matrix4());
+      sm.frustumCulled = false; sm.castShadow = cast; sm.receiveShadow = true; scene.add(sm); this.skinned.push(sm); };
+    // r128: skinning is a material flag, and one material shared by skinned + plain meshes makes three swap shaders every draw
+    // (and drew the legs wrong): the coxae + spinnerets (still plain meshes on the body) get their own copy of the leg material
+    const m = this.mats, legR = m.leg.clone(), base = this.tint.find(e => e[0] === m.leg)[1];
+    this.root.traverse(o => { if (o.material === m.leg) o.material = legR; });
+    this.tint.push([legR, base]); this.ownMats.add(legR); if (typeof envMats !== 'undefined') envMats.add(legR);
+    m.leg.skinning = m.legHair.skinning = true;
+    mk(solid, this.mats.leg, true); mk(hair, this.mats.legHair, false);
+    bones.forEach(b => { b.visible = false; });
   }
   pickables() { // solid parts only: raycasting thousands of hair ribbons and fur shells would make a click hitch
     const out = []; this.root.traverse(o => o.isMesh && !o.material.alphaMap && o.material !== this.mats.hair && out.push(o)); return out.concat(this.worldMeshes); }
   dispose() {
     scene.remove(this.root); this.worldMeshes.forEach(o => scene.remove(o));
+    (this.skinned || []).forEach(o => { scene.remove(o); o.geometry.dispose(); }); if (this.skel) this.skel.dispose();
     const geos = new Set(); this.root.traverse(o => o.geometry && geos.add(o.geometry)); this.worldMeshes.forEach(w => w.traverse(o => o.geometry && geos.add(o.geometry)));
     geos.forEach(g => g.dispose());
     this.ownMats.forEach(mm => { envMats.delete(mm); mm.dispose(); }); this.furTex.dispose();
@@ -307,7 +345,7 @@ class Spider {
     this.root.position.y -= this.span * .025; this.root.updateMatrixWorld(true);
     const g = new THREE.Group(), mat = new THREE.MeshStandardMaterial({ color: lin(0x5a4a38), roughness: .75, transparent: true, opacity: .9, side: THREE.DoubleSide, envMapIntensity: .2 });
     const add = o => { const c = o.clone(true); c.traverse(q => { if (q.isMesh) { if (q.material.alphaMap) q.visible = false; q.material = mat; q.castShadow = true; } });
-      o.updateMatrixWorld(true); c.matrixAutoUpdate = false; c.matrix.copy(o.matrixWorld); return c; };
+      o.updateMatrixWorld(true); c.matrixAutoUpdate = false; c.matrix.copy(o.matrixWorld); c.visible = true; return c; };   // (leg meshes are invisible bones, see batchLegs)
     g.add(add(this.root)); this.worldMeshes.forEach(w => g.add(add(w)));
     return g;
   }
