@@ -66,9 +66,9 @@ function moodTalk() { // what's on its mind right now, most pressing first
 const prey = [];
 /* ---------- vibration ripples (what the spider feels through slit sensilla in its legs) ---------- */
 const ripples = [], ringGeo = new THREE.RingGeometry(.92, 1, 64); ringGeo.rotateX(-Math.PI / 2);
-function spawnRipple(p, s) {
-  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffb35c, transparent: true, opacity: .5, depthWrite: false, blending: THREE.AdditiveBlending }));
-  m.position.set(p.x, groundY(p.x, p.z) + .1, p.z); m.userData = { t: 0, s }; scene.add(m); ripples.push(m);
+function spawnRipple(p, s, wet) { // wet: a ring on the water surface (a foot or prey touching the water hole)
+  const m = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: wet ? 0xcfe6ff : 0xffb35c, transparent: true, opacity: wet ? .3 : .5, depthWrite: false, blending: THREE.AdditiveBlending }));
+  m.position.set(p.x, wet ? WATER_Y + .03 : groundY(p.x, p.z) + .1, p.z); m.userData = { t: 0, s, wet }; m.renderOrder = 3; scene.add(m); ripples.push(m);
 }
 
 /* ---------- navigation around the hollow log ----------
@@ -146,6 +146,7 @@ function drive(dt, target, maxSpeed) {
   const ahead = groundY(sp.pos.x + fwd.x * L * .3, sp.pos.z + fwd.z * L * .3) - groundY(sp.pos.x, sp.pos.z);
   v *= clamp(1 - ahead / (L * .3) * .6, .4, 1.1);            // climbing a rock is slower than walking on soil
   v *= clamp(1 - (sp.climbLag || 0) * 7, .15, 1);           // stepping up onto a roof: wait for the body to rise with the legs
+  if (inPond(sp.pos.x, sp.pos.z)) v *= .6;                    // wading through the water hole
   const des = fwd.multiplyScalar(v);
   obstaclesFor(L).forEach(o => { const ox = sp.pos.x - o.x, oz = sp.pos.z - o.z, od = Math.hypot(ox, oz) || 1, R = o.r + L * .35;
     if (od < R + L * .4) { const push = (R + L * .4 - od) / (L * .4), side = Math.sign(ox * dz - oz * dx) || 1;
@@ -296,10 +297,13 @@ function tick(dt) {
   for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .3;
     if (n.d < R) { sp.pos.x += n.nx * (R - n.d); sp.pos.z += n.nz * (R - n.d); } }
   sp.update(dt);
+  for (const l of sp.legs) { // a foot set down in the water hole sends out a ring
+    if (l._sw && !l.swing && l.foot.y < WATER_Y + .15 && inPond(l.foot.x, l.foot.z)) spawnRipple(l.foot, L * .06, true);
+    l._sw = l.swing; }
   prey.forEach(p => p.update(dt, sp));
   for (let i = prey.length - 1; i >= 0; i--) if (prey[i].eaten) prey.splice(i, 1);
   for (let i = ripples.length - 1; i >= 0; i--) { const r = ripples[i]; r.userData.t += dt; const k = r.userData.t;
-    r.scale.setScalar(1 + k * 9 * r.userData.s); r.material.opacity = .45 * (1 - k / 1.2); if (k > 1.2) { scene.remove(r); r.material.dispose(); ripples.splice(i, 1); } }
+    const w = r.userData.wet, life = w ? 1.8 : 1.2; r.scale.setScalar(1 + k * (w ? 2.4 : 9) * r.userData.s); r.material.opacity = (w ? .3 : .45) * (1 - k / life); if (k > life) { scene.remove(r); r.material.dispose(); ripples.splice(i, 1); } }
   for (let i = boluses.length - 1; i >= 0; i--) { const b = boluses[i]; b.userData.t -= hrs; if (b.userData.t < 0) { scene.remove(b); boluses.splice(i, 1); } }
   if (humWarnT > 0) humWarnT -= hrs;
   if (humWarnT <= 0 && S.hum > 88) { log('ความชื้นสูงเกิน เสี่ยงเชื้อราในตู้ ควรหยุดพ่นน้ำสักพัก', true); humWarnT = 24; }
@@ -354,7 +358,7 @@ const composer = new THREE.EffectComposer(renderer, new THREE.WebGLRenderTarget(
 composer.addPass(new THREE.RenderPass(scene, camera));
 const bokeh = new THREE.BokehPass(scene, camera, { focus: 50, aperture: .0002, maxblur: .008, width: 2, height: 2 });
 { // depth for DOF: skip glass, dust and additive FX so they don't punch sharp holes in the blur
-  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, ...ripples, ...drops];
+  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, water, water.userData.tint, ...ripples, ...drops];
   bokeh.render = function (...a) { const h = hide(), vis = h.map(o => o.visible); h.forEach(o => o.visible = false); orig(...a); h.forEach((o, i) => o.visible = vis[i]); };
 }
 composer.addPass(bokeh);

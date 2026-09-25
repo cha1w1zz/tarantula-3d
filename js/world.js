@@ -290,13 +290,21 @@ const BURROW = LOG.c.clone().addScaledVector(LOG.a, 5 * NS);
 const LOG_ENTRY = LOG.c.clone().addScaledVector(LOG.a, 12.5 * NS);
 const dishPos = natV(18, 9);
 const soilBase = (x, z) => 1.5 + fbm(x * .05, 0.3, z * .05, 3) * 2.4 + fbm(x * .3, 7.1, z * .3, 2) * .3 - z / TD * 1.4;
-const DISH_Y = soilBase(dishPos.x, dishPos.z) - .35;          // bottom of the water dish
+// water hole (replaces the old stone dish): an irregular shallow basin dug into the soil; the spider can wade in
+// (groundY = the muddy floor), prey keep out. pondR(a) = shore radius by angle, WATER_Y = the water surface
+const POND_R = 5.4, POND_D = 1.05, POND_Y0 = soilBase(dishPos.x, dishPos.z) - .1, WATER_Y = POND_Y0 - .38;
+const pondR = a => POND_R * (1 + .13 * Math.sin(3 * a + 1.1) + .07 * Math.sin(5 * a + 2.3) + .04 * Math.sin(8 * a));
+const pondT = (x, z) => Math.hypot(x - dishPos.x, z - dishPos.z) / pondR(Math.atan2(z - dishPos.z, x - dishPos.x));   // < 1 inside the shore line
+const inPond = (x, z, pad) => pondT(x, z) < 1 + (pad || 0) / POND_R;
 function soilY(x, z) {
   let y = soilBase(x, z);
   const d = Math.hypot(x - BURROW.x, z - BURROW.z);
   if (d < 3.6) y -= Math.pow(1 - d / 3.6, 1.5) * 1.3;
-  const dd = Math.hypot(x - dishPos.x, z - dishPos.z);        // the dish is pressed into a flat hollow, so the slope never pokes through its floor
-  if (dd < 5.6) { const t = clamp((5.6 - dd) / 1.5, 0, 1); y = lerp(y, Math.min(y, DISH_Y + .02), t * t * (3 - 2 * t)); }
+  const t = pondT(x, z);
+  if (t < 1.7) { // level bank around the hole (so the shore is not tilted), then a soft bowl
+    const f = clamp((1.7 - t) / .55, 0, 1); y = lerp(y, Math.min(y, POND_Y0), f * f * (3 - 2 * f));
+    if (t < 1) y = Math.min(y, POND_Y0 - POND_D * Math.pow(1 - t * t, .75));
+  }
   return y;
 }
 // flat: slab with a cut top (bedded stone); small companion stones make the big ones read as a natural group
@@ -356,7 +364,8 @@ const soilGeo = new THREE.PlaneGeometry(TW, TD, 300, 200); soilGeo.rotateX(-Math
     const rel = new V3(x - LOG.c.x, 0, z - LOG.c.z), along = rel.dot(LOG.a), side = Math.abs(rel.x * -LOG.a.z + rel.z * LOG.a.x);
     if (Math.abs(along) < LOG.len / 2 + 1) ao *= side < LOG.R ? .45 : lerp(.55, 1, clamp((side - LOG.R) / 3, 0, 1));
     const damp = clamp(.5 + fbm(x * .08, 3, z * .08) * 1.4, 0, 1);
-    const c = new THREE.Color().setHSL(.07, .25, lerp(.62, .44, damp) * ao).convertSRGBToLinear();
+    const wet = clamp((1.35 - pondT(x, z)) / .5, 0, 1);                      // dark wet mud in and around the water hole
+    const c = new THREE.Color().setHSL(.07, lerp(.25, .32, wet), lerp(.62, .44, damp) * ao * lerp(1, .5, wet)).convertSRGBToLinear();
     col.push(c.r * 1.6, c.g * 1.6, c.b * 1.6);
   }
   soilGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -545,26 +554,24 @@ const LOG_RI = LOG.R - 1.05;                                   // inner (rotted-
   silk.rotation.x = -Math.PI / 2; silk.position.copy(hole.position).y += .06; scene.add(silk);
 }
 
-/* ---------- water dish (carved stone) ---------- */
+/* ---------- water hole: tinted absorbing layer (you still see the muddy floor and the legs wading in) + a
+   reflection-only surface with drifting ripples; both follow the shore shape ---------- */
 let water;
 {
-  const pts = [[0, .05], [3.4, .05], [4.1, .3], [4.5, .9], [4.45, 1.35], [4.1, 1.5], [3.75, 1.3], [3.45, .55], [0, .45]].map(([r, y]) => new V2(r, y));
-  const g = new THREE.LatheGeometry(pts, 72), p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i), s = 1 + fbm(x * .5, p.getY(i), z * .5) * .06; p.setX(i, x * s); p.setZ(i, z * s); }
-  g.computeVertexNormals();
-  const m = new THREE.Mesh(g, track(new THREE.MeshStandardMaterial({ map: ROCK.map, normalMap: ROCK.normalMap, color: 0x9a9088, roughness: .75 }), .6));
-  m.position.set(dishPos.x, DISH_Y, dishPos.z); m.castShadow = m.receiveShadow = true; scene.add(m);
-  // water: a tinted absorbing layer (you still see the dish floor) plus a reflection-only surface with slow ripples
-  const tint = new THREE.Mesh(new THREE.CircleGeometry(3.75, 64), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x08110f).convertSRGBToLinear(), transparent: true, opacity: .74, depthWrite: false }));
-  tint.rotation.x = -Math.PI / 2; tint.position.set(dishPos.x, m.position.y + 1.14, dishPos.z); scene.add(tint);
-  water = new THREE.Mesh(new THREE.CircleGeometry(3.75, 64), track(new THREE.MeshPhysicalMaterial({ color: 0x000000, roughness: .04, metalness: 0, normalMap: RIPPLE_TEX, normalScale: new V2(.05, .05), clearcoat: 1, clearcoatRoughness: .02, reflectivity: 1, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 2.6));
-  water.rotation.x = -Math.PI / 2; water.position.set(dishPos.x, m.position.y + 1.15, dishPos.z); water.renderOrder = 2; scene.add(water);
+  const shape = r0 => { const g = new THREE.CircleGeometry(1, 96), p = g.attributes.position;
+    for (let i = 1; i < p.count; i++) { const a = Math.atan2(p.getY(i), p.getX(i)); p.setXY(i, Math.cos(a) * pondR(-a) * r0, Math.sin(a) * pondR(-a) * r0); }   // local (X, Y) → world (X, -Y) after rotation.x = -90°
+    return g; };
+  const tint = new THREE.Mesh(shape(1), new THREE.MeshBasicMaterial({ color: new THREE.Color(0x0b1512).convertSRGBToLinear(), transparent: true, opacity: .62, depthWrite: false }));
+  tint.rotation.x = -Math.PI / 2; tint.position.set(dishPos.x, WATER_Y - .01, dishPos.z); tint.renderOrder = 1; scene.add(tint);
+  water = new THREE.Mesh(shape(1), track(new THREE.MeshPhysicalMaterial({ color: 0x000000, roughness: .04, metalness: 0, normalMap: RIPPLE_TEX, normalScale: new V2(.06, .06), clearcoat: 1, clearcoatRoughness: .02, reflectivity: 1, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), 2.6));
+  water.rotation.x = -Math.PI / 2; water.position.set(dishPos.x, WATER_Y, dishPos.z); water.renderOrder = 2; scene.add(water);
+  water.userData.tint = tint;
 }
 
 /* ---------- collision sets ---------- */
 // the log is not a circle obstacle: game.js treats it as an oriented box whose hollow is an open channel (logLocal / logWorld)
-const obstacles = [{ x: dishPos.x, z: dishPos.z, r: 4.8 }];
-const preyObs = ROCKS.concat([{ x: dishPos.x, z: dishPos.z, r: 4.3, h: 1.5 }]);
+const obstacles = [];                                          // (the water hole is walkable; the spider wades in)
+const preyObs = ROCKS.concat([{ x: dishPos.x, z: dishPos.z, r: POND_R * .95, h: 1.5 }]);   // prey avoid the water
 const logLocal = (x, z) => { const rx = x - LOG.c.x, rz = z - LOG.c.z; return { al: rx * LOG.a.x + rz * LOG.a.z, sd: -rx * LOG.a.z + rz * LOG.a.x }; };
 const logWorld = (al, sd) => new V3(LOG.c.x + LOG.a.x * al - LOG.a.z * sd, 0, LOG.c.z + LOG.a.z * al + LOG.a.x * sd);
 
@@ -577,7 +584,7 @@ const underLog = (x, z) => { const rel = new V3(x - LOG.c.x, 0, z - LOG.c.z), al
 // true when (x, z) or anything within `pad` of it is up on a rock
 const onRock = (x, z, pad) => { pad = pad || 0; return [[0, 0], [pad, 0], [-pad, 0], [0, pad], [0, -pad]].some(([dx, dz]) => groundY(x + dx, z + dz) > soilY(x + dx, z + dz) + .08); };
 let cityInside = null;                                          // set by game.js from city.js: (x, z, pad) → inside a building or big prop (before that: the lots)
-const clearSpot = (x, z) => inTank(x, z) && !(cityInside ? cityInside(x, z, .5) : lotInside(x, z, .5)) && !underLog(x, z) && Math.hypot(x - LOG_ENTRY.x, z - LOG_ENTRY.z) > 4 && Math.hypot(x - dishPos.x, z - dishPos.z) > 5.2;
+const clearSpot = (x, z) => inTank(x, z) && !(cityInside ? cityInside(x, z, .5) : lotInside(x, z, .5)) && !underLog(x, z) && Math.hypot(x - LOG_ENTRY.x, z - LOG_ENTRY.z) > 4 && !inPond(x, z, 1);
 
 // cushion moss: textured, lumpy base that blends into the soil + a few alpha-tested shells for a fuzzy close-up silhouette
 const MOSS = pbr(512, 512, hsl(78, 38, 10), '#303030', (ga, gh, w, h) => {
@@ -763,7 +770,7 @@ const plantSites = (() => {
   const R = seeded(4242), out = [];
   for (let k = 0; k < 4000 && out.length < 24; k++) {                 // in the garden part only: the city zone keeps its streets open
     const x = -TW / 2 + 3 + R() * (TW - 6), z = -TD / 2 + 3 + R() * (TD - 6);
-    if (!clearSpot(x, z) || inCity(x, z) || onRock(x, z, 1.6) || Math.hypot(x - dishPos.x, z - dishPos.z) < 7 || out.some(p => Math.hypot(p[0] - x, p[1] - z) < 5.2 * NS)) continue;
+    if (!clearSpot(x, z) || inCity(x, z) || onRock(x, z, 1.6) || inPond(x, z, 2.5) || out.some(p => Math.hypot(p[0] - x, p[1] - z) < 5.2 * NS)) continue;
     out.push([x, z]);
   }
   return out;
@@ -835,7 +842,7 @@ function setMeadowDensity() {}
   const g = new THREE.PlaneGeometry(1, 2, 6, 10); g.rotateX(-Math.PI / 2);
   { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i); p.setY(i, x * x * .5 + Math.pow(Math.max(0, -z - .3), 2) * .5 + Math.sin(z * 3) * .04); } g.computeVertexNormals(); }
   const list = [];
-  for (let i = 0; i < 75; i++) { const x = rand(-TW / 2 + 2, TW / 2 - 2), z = rand(-TD / 2 + 2, TD / 2 - 2); if (Math.hypot(x - dishPos.x, z - dishPos.z) < 5 || onRock(x, z, 1.2)) continue;
+  for (let i = 0; i < 75; i++) { const x = rand(-TW / 2 + 2, TW / 2 - 2), z = rand(-TD / 2 + 2, TD / 2 - 2); if (inPond(x, z, .3) || onRock(x, z, 1.2)) continue;
     { const q = logLocal(x, z); if (Math.abs(q.al) < LOG.len / 2 + 1 && Math.abs(q.sd) > LOG_RI - 1.2 && Math.abs(q.sd) < LOG.R + 1.2) continue; }
     dummy.position.set(x, groundY(x, z) + .05, z); dummy.rotation.set(rand(-.15, .15), rand(0, 6.3), rand(-.15, .15)); dummy.scale.setScalar(rand(1.5, 2.8)); dummy.updateMatrix();
     const fresh = Math.random() < .08;
