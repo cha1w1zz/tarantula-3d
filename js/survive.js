@@ -43,6 +43,15 @@ function humanNav() {
       if (ok(k) && G.free[k]) HNAV.hides.push({ p: new V3(x, 0, z), s }); } });
   return HNAV;
 }
+// where he walks in: 2 fixed street spots (open, easy to see); the one farthest from the spider, moved to the nearest free town cell
+const HUMAN_SPAWNS = [{ x: -18, z: -19, name: 'ถนนหลังเมือง' }, { x: 33, z: 12, name: 'ถนนฝั่งขวา' }];
+function humanSpawn() {
+  const G = humanNav().G, far = s => spider ? Math.hypot(s.x - spider.pos.x, s.z - spider.pos.z) : 0;
+  const pick = HUMAN_SPAWNS.slice().sort((a, b) => far(b) - far(a))[0];
+  let best = null, bd = 1e9;
+  for (let k = 0; k < G.free.length; k++) if (G.comp[k] === G.main) { const x = k % G.nx - TW / 2, z = (k / G.nx | 0) - TD / 2, d = Math.hypot(x - pick.x, z - pick.z); if (d < bd) { bd = d; best = { x, z }; } }
+  return { x: best ? best.x : pick.x, z: best ? best.z : pick.z, name: pick.name };
+}
 // can he be seen / felt from the spider's spot? a building taller than him between them = cover
 function covered(a, b) { const dx = b.x - a.x, dz = b.z - a.z, L2 = dx * dx + dz * dz || 1, n = Math.ceil(Math.sqrt(L2) / .8);
   for (const s of SOLIDS) { if (s.h <= 1.9) continue;
@@ -65,7 +74,7 @@ function humanRoute(from, to, detour) {
 const ROUND = {
   on: false, t: 0, day: 0, p: null, result: null, rescuing: false, stats: null,
   start(p) { humanNav(); Object.assign(this, { on: true, t: 0, day: 0, p, result: null, rescuing: false, stats: { chases: 0, escapes: 0, caught: 0, scares: 0, jukes: 0, trips: 0, meals: 0, drinks: 0, ducks: 0, dur: [] }, chaseT0: -1 });
-    p.ai = { st: 'hide', t: rand(2, 5), route: [], goal: null, why: null, H: 1, W: rand(.75, 1), stam: 1, cv: 0, jukeT: 0, jukeCD: 0, safeT: 0, repl: 0, chased: false };
+    p.ai = { st: 'hide', t: rand(5, 7), route: [], goal: null, why: null, H: 1, W: rand(.75, 1), stam: 1, cv: 0, jukeT: 0, jukeCD: 0, safeT: 0, repl: 0, chased: false };
     log(`🏁 เริ่มภารกิจเอาชีวิตรอด: ชัยภัทรต้องอยู่รอดในเมืองร้าง ${ROUND_DAYS} วัน (1 วัน = ${DAY_S} วินาที) แล้วเฮลิคอปเตอร์จะมารับ`); },
   tick(dt) {
     if (!this.on) return; const p = this.p;

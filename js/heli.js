@@ -1,23 +1,24 @@
 'use strict';
 /* =====================================================================
    Helicopter + fire (loaded last). Both are decoration except HELI.rescue(), used by the survival round (game.js).
-     HELI  low-poly rescue helicopter circling the town: spinning rotors (+ a faint rotor disc), blinking red beacon and
+     HELI  (+ HELI2, a blue patrol-only twin on a lower loop the other way round, made by the same makeHeli())
+           low-poly rescue helicopter circling the town: spinning rotors (+ a faint rotor disc), blinking red beacon and
            white tail strobe, a searchlight cone (same additive beam shader as the god rays) + a soft light pool on the ground.
            The light sweeps the streets; while the spider hunts ชัยภัทร it follows the chase.
            HELI.rescue(p, done): fly down to p, hover, done() when he is aboard, then climb away out of the tank.
      FIRE  one small fire in the roofless husk in the garden: flame + smoke particles (1 draw call each), off on low/min quality.
    game.js calls FX_UPDATE(dt, night) from loop().
    ===================================================================== */
-const HELI = (() => {
+function makeHeli(o) {      // o: band colour, flight ellipse C, dir (+1 / -1), second (a patrol-only 2nd machine), other (the heli to keep clear of)
   const g = new THREE.Group(), body = new THREE.Group(); g.add(body); g.rotation.order = 'YXZ';
   const col = new THREE.Color(), parts = [];
   const put = (geo, hex, f) => { const P = geo.attributes.position, a = new Float32Array(P.count * 3);
     for (let i = 0; i < P.count; i++) { col.set(f ? f(P.getX(i), P.getY(i), P.getZ(i)) : hex).convertSRGBToLinear(); a.set([col.r, col.g, col.b], i * 3); }
     geo.setAttribute('color', new THREE.BufferAttribute(a, 3)); geo.deleteAttribute('uv'); parts.push(geo.index ? geo.toNonIndexed() : geo); };
   // fuselage: white with a red band, dark glass nose; tail boom, fin, stabiliser, skids, engine hump, searchlight pod
-  put(new THREE.SphereGeometry(1, 14, 10).scale(1.05, 1, 2).translate(0, 0, .3), 0, (x, y, z) => z > .9 && y > -.25 ? 0x1b2733 : Math.abs(y + .1) < .17 ? 0xc3281e : y < -.5 ? 0x9a9a96 : 0xe9e7e1);
-  put(new THREE.CylinderGeometry(.13, .27, 4.2, 8).rotateX(Math.PI / 2).translate(0, .3, -3.6), 0, (x, y) => y < .25 ? 0xc3281e : 0xe9e7e1);
-  put(new THREE.BoxGeometry(.1, 1.3, .8).translate(0, .95, -5.5), 0xc3281e);
+  put(new THREE.SphereGeometry(1, 14, 10).scale(1.05, 1, 2).translate(0, 0, .3), 0, (x, y, z) => z > .9 && y > -.25 ? 0x1b2733 : Math.abs(y + .1) < .17 ? o.band : y < -.5 ? 0x9a9a96 : 0xe9e7e1);
+  put(new THREE.CylinderGeometry(.13, .27, 4.2, 8).rotateX(Math.PI / 2).translate(0, .3, -3.6), 0, (x, y) => y < .25 ? o.band : 0xe9e7e1);
+  put(new THREE.BoxGeometry(.1, 1.3, .8).translate(0, .95, -5.5), o.band);
   put(new THREE.BoxGeometry(1.5, .07, .42).translate(0, .35, -4.9), 0xe9e7e1);
   for (const s of [-1, 1]) { put(new THREE.BoxGeometry(.1, .1, 3.3).translate(s * .82, -1.32, .3), 0x2b2b2d);
     for (const z of [-.5, 1.1]) put(new THREE.BoxGeometry(.07, .5, .07).rotateZ(s * .35).translate(s * .7, -1.05, z), 0x2b2b2d); }
@@ -45,7 +46,7 @@ const HELI = (() => {
   const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: poolTex, color: 0xdfe8ff, transparent: true, opacity: .3, blending: THREE.AdditiveBlending, depthWrite: false }));
   pool.renderOrder = 2; scene.add(pool);
   // flight: an ellipse over the town; aim = where the searchlight points (eases toward its goal)
-  const C = { x: 6, z: -3, rx: 38, rz: 21, y: 43 };
+  const C = o.C;
   const st = { mode: 'patrol', a: rand(0, 6.3), pos: new V3(), vel: new V3(), yaw: 0, roll: 0, pitch: 0, aim: new V3(0, 0, 0), goal: new V3(), sweepT: 0, t: 0, p: null, done: null, k: 0, gone: false };
   const src = new V3(), dir = new V3(), q = new THREE.Quaternion(), DOWN = new V3(0, -1, 0), tmp = new V3();
   st.pos.set(C.x + Math.cos(st.a) * C.rx, C.y, C.z + Math.sin(st.a) * C.rz); st.aim.set(C.x, 0, C.z);
@@ -61,7 +62,9 @@ const HELI = (() => {
     reset() { st.mode = 'patrol'; st.p = null; st.done = null; st.gone = false; g.visible = true; st.pos.set(C.x + Math.cos(st.a) * C.rx, C.y, C.z + Math.sin(st.a) * C.rz); },
     update(dt, night, chase) {
       st.t += dt; const now = st.t;
-      if (st.mode === 'patrol') { st.a += dt * .13; steer(dt, tmp.set(C.x + Math.cos(st.a) * C.rx, C.y + 2 * Math.sin(st.a * 2.3), C.z + Math.sin(st.a) * C.rz), 9, .8); }
+      if (st.mode === 'patrol') { st.a += dt * .13 * (o.dir || 1);   // the 2nd one climbs out of the way while the first is down at a rescue
+        const up = o.other && o.other.busy ? TH - 6 - C.y : 0; st.lift = lerp(st.lift || 0, up, clamp(dt * .6, 0, 1));
+        steer(dt, tmp.set(C.x + Math.cos(st.a) * C.rx, C.y + st.lift + 2 * Math.sin(st.a * 2.3), C.z + Math.sin(st.a) * C.rz), 9, .8); }
       else if (st.mode === 'descend') {                                      // over him, then straight down to a low hover
         const P = st.p.pos, hy = Math.max(roofAround(P.x, P.z, 5.5) + 3.2, groundY(P.x, P.z) + 3.4), flat = Math.hypot(P.x - st.pos.x, P.z - st.pos.z);
         if (flat > 4) steer(dt, tmp.set(P.x, Math.max(hy, Math.min(st.pos.y, 30)), P.z), 16, 1.4);                       // over him (never climbs back up)
@@ -82,13 +85,15 @@ const HELI = (() => {
       else if ((st.sweepT -= dt) <= 0) { st.sweepT = rand(3, 6); const a = st.a + rand(.2, .9); st.goal.set(C.x + Math.cos(a) * C.rx * rand(.3, .8), 0, C.z + Math.sin(a) * C.rz * rand(.3, .8)); }
       st.aim.lerp(st.goal, clamp(dt * (chase ? 2.5 : .8), 0, 1)); st.aim.y = groundY(st.aim.x, st.aim.z);
       src.set(0, -1.1, 1.35).multiplyScalar(.85).applyEuler(g.rotation).add(g.position);
-      dir.subVectors(st.aim, src); const L = dir.length(), on = g.visible && st.mode !== 'leave' && quality !== 'min';
+      dir.subVectors(st.aim, src); const L = dir.length(), on = g.visible && st.mode !== 'leave' && quality !== 'min' && !(o.second && quality !== 'high');   // 2nd searchlight only on high quality
       cone.visible = pool.visible = on;
       if (on) { dir.multiplyScalar(1 / L); cone.position.copy(src); cone.quaternion.setFromUnitVectors(DOWN, dir); const R = 3 + L * .06; cone.scale.set(R, L, R);
         beamM.uniforms.uI.value = .05 + .12 * night; pool.position.set(st.aim.x, st.aim.y + .12, st.aim.z); pool.scale.set(R * 2.4, 1, R * 2.4); pool.material.opacity = .08 + .3 * night; }
     },
   };
-})();
+}
+const HELI = makeHeli({ band: 0xc3281e, C: { x: 6, z: -3, rx: 38, rz: 21, y: 43 } });                          // rescue: red band, wide loop
+const HELI2 = makeHeli({ band: 0x1f4f9a, C: { x: -10, z: 4, rx: 30, rz: 16, y: 33 }, dir: -1, second: 1, other: HELI });   // patrol: blue band, lower + smaller loop the other way round
 
 const FIRE = (() => {
   const at = new V3(4.9, 0, 14.4); at.y = groundY(at.x, at.z) + .05;
@@ -118,5 +123,5 @@ const FIRE = (() => {
   } };
 })();
 
-const FX_HIDE = [FIRE.flame, FIRE.smoke, FIRE.glow, HELI.pool, HELI.disc];   // soft / additive FX: kept out of the depth-of-field depth pass
-function FX_UPDATE(dt, night, chase) { HELI.update(dt, night, chase); FIRE.update(dt, night); }
+const FX_HIDE = [FIRE.flame, FIRE.smoke, FIRE.glow, HELI.pool, HELI.disc, HELI2.pool, HELI2.disc];   // soft / additive FX: kept out of the depth-of-field depth pass
+function FX_UPDATE(dt, night, chase) { HELI.update(dt, night, chase); HELI2.update(dt, night, chase); FIRE.update(dt, night); }

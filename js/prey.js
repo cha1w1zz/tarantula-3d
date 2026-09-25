@@ -223,6 +223,7 @@ class Prey {
   constructor(kind) {
     this.kind = kind; this.burrowed = 0; this.rising = false; this.vibT = 0; this.eaten = false; this.held = false; this.heldT = 0; this.walk = 0; this.gaitK = 0;
     let x, z, k = 0; do { x = rand(-TW / 2 + 3, TW / 2 - 3); z = rand(-TD / 2 + 3, TD / 2 - 3); } while ((!clearSpot(x, z) || (spider && Math.hypot(x - spider.pos.x, z - spider.pos.z) < spider.span * 1.6)) && k++ < 60);
+    if (kind === 'human') { const h = humanSpawn(); x = h.x; z = h.z; this.spawnName = h.name; }   // never a random spot (could be inside a building / out of sight)
     this.pos = new V3(x, 0, z); this.yaw = rand(0, 6.3); this.face = this.yaw; this.v = 0; this.t = rand(0, 2); this.hop = 0; this.vy = 0; this.y = 0;
     this.crouch = 0; this.kick = 0; this.chirp = 0; this.pitch = 0; this.hindA = .1; this.tibA = 0; this.ph = rand(0, 6.3);
     const g = this.mesh = new THREE.Group(); g.rotation.order = 'YXZ'; this.legs = []; this.ant = []; this.hind = [];

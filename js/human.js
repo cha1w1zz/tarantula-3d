@@ -209,18 +209,30 @@ const humanSay = (() => {
     peek: ['มันยังอยู่แถวนี้…', 'รอก่อน…', 'ยังไม่ปลอดภัย'], hungry: ['หิวจะแย่ ไปหาอะไรกินดีกว่า', 'ท้องร้องแล้ว…'], thirsty: ['คอแห้งมาก…', 'ต้องไปหาน้ำ'],
     ate: ['อิ่มแล้ว ค่อยมีแรงหน่อย'], drank: ['ชื่นใจ…'], rescue: ['เฮลิคอปเตอร์! ทางนี้!!', 'ผมอยู่นี่!!'] };
   const LOGGED = { caught: 1, rescue: 1, panic: 1 };   // the rest only show in his bubble (no log spam during a chase)
-  return (p, cat, force) => { const L = LINES[cat]; if (!L || (p.sayCD > 0 && cat !== 'caught' && !force)) return; p.sayCD = 2.5;
+  const GAP = { panic: 6, juke: 7, tired: 14, peek: 9, hungry: 20, thirsty: 20, calm: 15 };   // per-line-kind wait: no rapid-fire repeats while he runs
+  return (p, cat, force) => { const L = LINES[cat], cd = p.catCD || (p.catCD = {}), now = performance.now() / 1000;
+    if (!L || (!force && cat !== 'caught' && (p.sayCD > 0 || (cd[cat] || 0) > now))) return; p.sayCD = 2.5; cd[cat] = now + (GAP[cat] || 0);
     const t = L[Math.random() * L.length | 0]; p.sayTxt = `ชัยภัทร: ${t}`; p.sayT = 2.6; p.sayCat = cat; if (LOGGED[cat]) log(`<i>ชัยภัทร:</i> “${t}”`, 'say'); };
 })();
-const _sayV = new V3();
+const _sayV = new V3(), _sayC = new V3();
+// hidden behind a building (camera → head line passes under a roof) or far away = no bubble; checked 6× a second so it doesn't flicker
+function sayBlocked(q) { const c = camera.position, d = c.distanceTo(q); if (d > 95) return true;
+  for (let i = 1; i < 16; i++) { _sayC.lerpVectors(c, q, i / 16); if (_sayC.y < groundY(_sayC.x, _sayC.z) - .1) return true; } return false; }
 function preyTalk(dt) {
   prey.forEach(p => { if (p.kind !== 'human') return; p.sayCD = (p.sayCD || 0) - dt; p.sayT = (p.sayT || 0) - dt;
     let el = p.bubble; if (!el) { el = p.bubble = document.createElement('div'); el.className = 'say hum'; document.body.appendChild(el); }
     if (p.eaten) { el.remove(); return; }
-    const q = p.hum ? p.hum.j.neck.getWorldPosition(_sayV) : _sayV.copy(p.mesh.position); q.y += .55; q.project(camera);
-    const on = p.sayT > .2 && q.z < 1 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1 && !document.body.classList.contains('noui');
+    const q = p.hum ? p.hum.j.neck.getWorldPosition(_sayV) : _sayV.copy(p.mesh.position); q.y += .55;
+    if (p.sayT > .2 && (p.blkT = (p.blkT || 0) - dt) <= 0) { p.blkT = .16; p.blk = sayBlocked(q); }
+    q.project(camera);
+    // only on screen (no pinning to the edge: that made it jump around)
+    const on = p.sayT > .2 && !p.blk && q.z < 1 && Math.abs(q.x) < .92 && q.y < .9 && q.y > -1 && !document.body.classList.contains('noui');
     el.classList.toggle('on', on); el.classList.toggle('panic', ['panic', 'caught', 'juke', 'tired'].includes(p.sayCat));
-    if (on) { if (el.textContent !== p.sayTxt) el.textContent = p.sayTxt; el.style.left = clamp((q.x * .5 + .5) * innerWidth, 110, innerWidth - 110) + 'px'; el.style.top = Math.max(50, (-q.y * .5 + .5) * innerHeight) + 'px'; }
+    if (on) { if (el.textContent !== p.sayTxt) el.textContent = p.sayTxt; let x = (q.x * .5 + .5) * innerWidth, y = (-q.y * .5 + .5) * innerHeight;
+      // the spider's bubble is up too and they would overlap: put his under his head instead
+      const sb = document.getElementById('say'); if (sb.classList.contains('on')) { const r = sb.getBoundingClientRect(), w = el.offsetWidth || 180;
+        if (x + w / 2 > r.left && x - w / 2 < r.right && y > r.top - 10 && y - 50 < r.bottom + 10) y = Math.max(y, r.bottom + 60); }
+      el.style.left = clamp(x, 100, innerWidth - 100) + 'px'; el.style.top = y + 'px'; }
   });
 }
 

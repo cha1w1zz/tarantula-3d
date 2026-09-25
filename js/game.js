@@ -511,14 +511,17 @@ const PREY_TH = { cricket: 'จิ้งหรีด', dubia: 'ดูเบี�
 function feed(kind, auto) {
   if (kind === 'human') {
     if (S.span < HUMAN_SPAN) { log(`แมงมุมยังตัวเล็ก (ขา ${S.span} ซม.) ต้องโตถึง ${HUMAN_SPAN} ซม. ก่อน ชัยภัทรถึงจะกลัว`); return; }
-    if (prey.some(p => p.kind === 'human' && !p.eaten)) { log('ชัยภัทรยังวิ่งหนีอยู่ในเมือง ปล่อยได้ทีละคน'); return; } }
-  if (prey.filter(p => !p.eaten).length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
-  const np = new Prey(kind); prey.push(np); if (kind === 'human') ROUND.start(np);
+    const h = prey.find(p => p.kind === 'human' && !p.eaten);
+    if (h) { log(h.held ? `ชัยภัทรกำลังถูก${S.name}กิน รอให้กินเสร็จก่อนค่อยปล่อยคนใหม่` : 'ชัยภัทรยังวิ่งหนีอยู่ในเมือง ปล่อยได้ทีละคน'); if (!h.held) focusOn(h); return; } }
+  else if (prey.filter(p => !p.eaten && p.kind !== 'human').length >= 4) { log('ในตู้มีเหยื่อเยอะแล้ว เหยื่อที่เหลือค้างอาจทำร้ายแมงมุมได้'); return; }
+  const np = new Prey(kind); prey.push(np); if (kind === 'human') { ROUND.start(np); focusOn(np); }
   if (auto) log(`🤖 ให้อาหารอัตโนมัติ: ${S.name} หิวจัด จึงปล่อย${kind === 'cricket' ? 'จิ้งหรีด' : 'แมลงสาบดูเบีย'} 1 ตัว`);
   else if (S.phase === 'premolt') log('แมงมุมที่ใกล้ลอกคราบจะไม่กิน ควรเอาเหยื่อออก', true);
   else if (S.phase === 'soft') log('เขี้ยวยังนิ่มหลังลอกคราบ ยังไม่ควรให้อาหาร', true);
-  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? '🏃 ชัยภัทรหลงเข้ามาในเมืองร้าง… เขาต้องหาของกิน หาน้ำ และหลบแมงมุมยักษ์ให้ได้ 30 วัน' : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
+  else log(kind === 'cricket' ? 'ปล่อยจิ้งหรีด 1 ตัว (กระโดดเก่ง สร้างแรงสั่นมาก)' : kind === 'human' ? `🏃 ชัยภัทรหลงเข้ามาในเมืองร้างทาง${np.spawnName}… เขาต้องหาของกิน หาน้ำ และหลบแมงมุมยักษ์ให้ได้ 30 วัน` : 'ปล่อยแมลงสาบดูเบีย 1 ตัว (โปรตีนสูง ชอบมุดดิน)');
 }
+// camera glides to ชัยภัทร for a few seconds when he walks in (or when you press the button while he is already out)
+let focusP = null, focusT = 0; const focusOn = p => { if (!cine && !eyes && !tankView && !saverOn) { focusP = p; focusT = 3.5; } };
 $('tCricket').onclick = () => feed('cricket');
 $('tDubia').onclick = () => feed('dubia');
 $('tHuman').onclick = () => feed('human');
@@ -688,7 +691,10 @@ function loop() {
   ledBeamMat.uniforms.uI.value = ledK * air * .09; lampBeamMat.uniforms.uI.value = lampK * air * .07;
   cityBeamMat.uniforms.uI.value = lerp(cityBeamMat.uniforms.uI.value, cine ? day * .16 + ledK * .05 : 0, clamp(dt * 2, 0, 1));
   for (let i = drops.length - 1; i >= 0; i--) { const d = drops[i]; d.position.y -= d.userData.v * dt; if (d.position.y < groundY(d.position.x, d.position.z)) { scene.remove(d); drops.splice(i, 1); } }
-  if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
+  if (focusT > 0 && focusP && !focusP.eaten && !cine && !eyes && !tankView && !saverOn) { focusT -= dt; const k = clamp(dt * 2.2, 0, 1);
+    camPrev.copy(controls.target); controls.target.lerp(focusP.mesh.position, k); camera.position.add(camPrev.sub(controls.target).negate());
+    const off = camPrev.copy(camera.position).sub(controls.target), r = off.length(); if (r > 26) camera.position.copy(controls.target).addScaledVector(off, lerp(r, 26, k) / r); }
+  else if (follow && spider) { camPrev.copy(controls.target); controls.target.lerp(spider.root.position, clamp(dt * 2.5, 0, 1)); camera.position.add(camPrev.sub(controls.target).negate()); }
   if (tankView && !saverOn) { // look straight in through the front glass
     const t = Math.tan(camera.fov * Math.PI / 360), d = Math.min(TH / 2 / t, TW / 2 / (t * camera.aspect)) * .97, y = TH / 2; // 'cover' fit: the glass always fills the window, no floor in front
     controls.target.set(0, y, 0); camera.position.lerp(camPrev.set(0, y, TD / 2 + d), clamp(dt * 3, 0, 1)); }
@@ -728,7 +734,7 @@ function loop() {
   // speech bubble floats above the spider
   const sb = $('say'); sayBubbleT -= dt;
   if (sayBubbleT > 0 && spider && !previewing) { const q = spider.root.position.clone(); q.y += spider.span * .22; q.project(camera);
-    const on = q.z < 1 && Math.abs(q.x) < 1.1 && Math.abs(q.y) < 1.1; sb.classList.toggle('on', on && sayBubbleT > .3);
+    const on = q.z < 1 && Math.abs(q.x) < .92 && q.y < .9 && q.y > -1; sb.classList.toggle('on', on && sayBubbleT > .3);   // off screen = hidden, not pinned to the edge
     if (on) { sb.style.left = clamp((q.x * .5 + .5) * innerWidth, 130, innerWidth - 130) + 'px'; sb.style.top = Math.max(60, (-q.y * .5 + .5) * innerHeight) + 'px'; } }
   else sb.classList.remove('on');
   if (!previewing) { hudT -= dt; if (hudT < 0) { hud(); hudT = .2; } saveT -= dt; if (saveT < 0) { save(); saveT = 5; } }
