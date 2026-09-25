@@ -346,7 +346,7 @@ void main(){
   // ---- 8. quality + per-frame uniforms
   const NW = webs.length, heroes = webs.filter(w => w.rank < 0).length;
   function setDensity(k) {
-    const n = k >= 1 ? NW : max(heroes, round(NW * (k >= .5 ? .75 : .4)));
+    const n = k >= 1 ? NW : max(heroes, round(NW * (k >= .5 ? .12 : .08)));   // fast / lowest modes: only the top-ranked webs (fast mode stays as quick as before)
     lines.geometry.setDrawRange(0, cut.L[n]); film.geometry.setDrawRange(0, cut.F[n]); drops.geometry.setDrawRange(0, cut.D[n]);
     U.uTw.value = k >= .5 ? 1 : 0; api.shown = n;
   }
