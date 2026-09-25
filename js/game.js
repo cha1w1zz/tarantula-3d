@@ -711,13 +711,14 @@ function loop() {
     controls.target.lerp(camPrev.set(p.x, p.y + s * .12, p.z), k2); const off = camPrev.copy(camera.position).sub(controls.target); off.y = 0;
     if (off.lengthSq() < .01) off.set(0, 0, 1);
     const ty = p.y + s * .12, a0 = Math.atan2(off.x, off.z);
-    const at = (a, f) => { const x = clamp(p.x + Math.sin(a) * s * f, -TW / 2 + 1, TW / 2 - 1), z = clamp(p.z + Math.cos(a) * s * f, -TD / 2 + 1, TD / 2 - 1);
-      return [x, groundY(x, z) + clamp(s * .05, .6, 2.5), z]; };
-    const clear = ([x, y, z]) => { for (let u = 0; u <= .85; u += .12) { const qx = x + (p.x - x) * u, qz = z + (p.z - z) * u, qy = y + (ty - y) * u;
-      for (const k of SOLIDS) if (gridY(k.grid, qx, qz) > qy && solidNear(k, qx, qz).inside) return false; } return true; };
+    const at = (a, f) => { const r = Math.min(s * f, 34), x = p.x + Math.sin(a) * r, z = p.z + Math.cos(a) * r;
+      return inTank(x, z, 1.5) ? [x, groundY(x, z) + clamp(s * .05, .6, 2.5), z] : null; };   // never squeezed against the glass
+    const clear = c => { if (!c) return false; const [x, y, z] = c, n = Math.ceil(Math.hypot(p.x - x, p.z - z) / 1.2);
+      for (let i = 0; i <= n * .9; i++) { const u = i / n, qx = x + (p.x - x) * u, qz = z + (p.z - z) * u, qy = y + (ty - y) * u;
+        for (const k of SOLIDS) if (gridY(k.grid, qx, qz) > qy && solidNear(k, qx, qz).inside) return false; } return true; };
     let pick = null;                                               // keep the angle if the street is clear, else swing around / pull in
-    for (const da of [0, .45, -.45, .9, -.9, 1.4, -1.4, 2.2, -2.2, 3.1]) { for (const f of [1.7, 1.3, 1]) { const c = at(a0 + da, f); if (clear(c)) { pick = c; break; } } if (pick) break; }
-    camera.position.lerp(camPrev.set(...(pick || at(a0, .8))), k2); }
+    for (const da of [0, .45, -.45, .9, -.9, 1.4, -1.4, 2.2, -2.2, 3.1]) { for (const f of [1.7, 1.3, 1, .75]) { const c = at(a0 + da, f); if (clear(c)) { pick = c; break; } } if (pick) break; }
+    if (pick) camera.position.lerp(camPrev.set(...pick), k2); }
   // haze between the buildings in the film shot; shafts of light through the street gaps by day
   FOG0 = FOG0 || scene.fog.density; scene.fog.density = lerp(scene.fog.density, cine ? FOG0 * 2.4 : FOG0, clamp(dt, 0, 1));
   controls.update();
