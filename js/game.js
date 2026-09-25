@@ -11,8 +11,12 @@ if (typeof CITY !== 'undefined') {
   cityInside = CITY.inside;                                     // grass, prey and wander spots stay out of the buildings
   CITY.buildings.forEach(b => { if (!b.solid) return;
     const g = b.solid, p = g.attributes.position, idx = g.index ? g.index.array : Array.from({ length: p.count }, (_, i) => i);
-    SOLIDS.push({ b, x: b.x, z: b.z, c: Math.cos(b.rot || 0), s: Math.sin(b.rot || 0), hw: b.w / 2, hd: b.d / 2, h: b.h, r: Math.hypot(b.w, b.d) / 2,
-      grid: heightGrid(p, idx, () => true) }); });
+    const k = { b, x: b.x, z: b.z, c: Math.cos(b.rot || 0), s: Math.sin(b.rot || 0), hw: b.w / 2, hd: b.d / 2, h: b.h, r: Math.hypot(b.w, b.d) / 2,
+      grid: heightGrid(p, idx, () => true) }, G = k.grid;
+    // eaves, awnings and signboards hang out over the street: only the footprint itself is walkable (no floors in mid-air)
+    for (let gj = 0; gj < G.d; gj++) for (let gi = 0; gi < G.w; gi++) { const x = G.x0 + gi * G.cs, z = G.z0 + gj * G.cs;
+      if (solidNear(k, x, z).d > .05) G.H[gj * G.w + gi] = soilY(x, z); }
+    SOLIDS.push(k); });
 }
 const walls = L => SOLIDS.filter(k => k.h > L * CLIMB);        // too tall to step onto at this size
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
