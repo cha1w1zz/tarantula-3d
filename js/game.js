@@ -2,7 +2,7 @@
 /* =====================================================================
    Game: care loop, behaviour, prey, post-processing, HUD
    ===================================================================== */
-let haze = 0, cine = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
+let haze = 0, cine = false, eyes = false, tankView = false, saverOn = false, saverT = 0, saverShot = { az: 0, el: .5, r: 20 };
 /* ---------- city: buildings are walkable like ROCKS (height grid from their solid shell). A building is a wall the spider
    walks around until it is big enough to step up onto the roof (roof lower than CLIMB × leg span) ---------- */
 const CLIMB = .35, KAIJU = 2.4;                                // kaiju growth: span 5 → ×1.35 per molt up to maxSpan × KAIJU (31–38, 6–7 molts)
@@ -363,7 +363,7 @@ const composer = new THREE.EffectComposer(renderer, new THREE.WebGLRenderTarget(
 composer.addPass(new THREE.RenderPass(scene, camera));
 const bokeh = new THREE.BokehPass(scene, camera, { focus: 50, aperture: .0002, maxblur: .008, width: 2, height: 2 });
 { // depth for DOF: skip glass, dust and additive FX so they don't punch sharp holes in the blur
-  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, water, water.userData.tint, ...ripples, ...drops];
+  const orig = bokeh.render.bind(bokeh), hide = () => [glassGroup, dust, beams, roomBokeh, water, water.userData.tint, ...ripples, ...drops, ...(typeof FX_HIDE !== 'undefined' ? FX_HIDE : [])];
   bokeh.render = function (...a) { const h = hide(), vis = h.map(o => o.visible); h.forEach(o => o.visible = false); orig(...a); h.forEach((o, i) => o.visible = vis[i]); };
 }
 composer.addPass(bokeh);
@@ -377,6 +377,7 @@ function resize() {
   renderer.setPixelRatio(pr); renderer.setSize(w, h, false); composer.setPixelRatio(pr); composer.setSize(w, h);
   camera.aspect = w / h;
   camera.fov = clamp(2 * Math.atan(Math.tan(26 * Math.PI / 180) / camera.aspect) * 180 / Math.PI, 36, 64); if (cine) camera.fov = Math.max(camera.fov, 50);   // portrait phones: widen so the tank still fits
+  if (eyes) camera.fov = Math.max(camera.fov, 66);   // his eyes: a wide human field of view
   camera.updateProjectionMatrix();
   fxaa.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr)); grade.uniforms.uRes.value.set(w * pr, h * pr);
   bokeh.uniforms.aspect.value = camera.aspect;       // BokehPass only reads the aspect once, at construction
@@ -431,7 +432,7 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   const ui = on => d.body.classList.toggle('noui', !on);
   $('tHide').onclick = () => ui(false); $('uiBack').onclick = () => ui(true);
   // screensaver: fullscreen, no UI, slow cinematic orbit around the spider; any tap/key exits
-  const saver = (on, full) => { saverOn = on; if (on && cine) setCine(false); d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
+  const saver = (on, full) => { saverOn = on; if (on && cine) setCine(false); if (on && eyes) setEyes(false); d.body.classList.toggle('saver', on); ui(!on); follow = on || $('tFollow').classList.contains('on');
     if (on) { saverT = 0; if (full && !fsEl() && req) req.call(el); } else if (fsEl()) (d.exitFullscreen || d.webkitExitFullscreen).call(d); };
   $('tSaver').onclick = e => { e.stopPropagation(); saver(true, true); };
   $('tSaverWin').onclick = e => { e.stopPropagation(); saverAt = performance.now(); saver(true, false); };
@@ -458,8 +459,15 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
 const CAM0 = { pol: controls.maxPolarAngle };
 function setCine(on) { cine = on; $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
 $('tCine').onclick = () => { setCine(!cine); if (cine && tankView) $('tTank').click(); };
-$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
+$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); if (tankView && eyes) setEyes(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
   if (tankView && follow) $('tFollow').click(); };
+// first person: look through ชัยภัทร's eyes (watch only: the orbit controls are off, the game drives him)
+const eyesOf = () => prey.find(p => p.kind === 'human' && !p.eaten && !p.boarded), eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
+function setEyes(on) { eyes = on; $('tEyes').classList.toggle('on', on);
+  if (on) { if (cine) setCine(false); if (tankView) $('tTank').click(); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
+  else controls.target.copy(spider ? spider.root.position : controls.target);
+  controls.enabled = !on && !tankView; resize(); }
+$('tEyes').onclick = () => { if (!eyes && !eyesOf()) { log('ยังไม่มีชัยภัทรในเมือง ปล่อยเขาก่อน แล้วค่อยมองผ่านสายตาเขา'); return; } setEyes(!eyes); };
 const QUAL_TXT = { high: '✨ ภาพ: สูง', low: '⚡ ภาพ: เร็ว', min: '🐢 ภาพ: ต่ำสุด' };
 $('tQual').onclick = e => { quality = { high: 'low', low: 'min', min: 'high' }[quality]; e.currentTarget.textContent = QUAL_TXT[quality]; resize(); };
 const drops = [], dropGeo = new THREE.SphereGeometry(.07, 6, 4), dropMat = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: .45, depthWrite: false });
@@ -556,6 +564,8 @@ function loop() {
     sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up); }
   scene.background.copy(BG_NIGHT).lerp(BG_DAY, day); scene.fog.color.copy(scene.background);
   if (typeof CITY !== 'undefined') CITY.update(dt, 1 - day);   // window glow + neon flicker
+  if (typeof FX_UPDATE === 'function') { const h = spider && spider.prey;                        // helicopter (searchlight follows a chase) + fire
+    FX_UPDATE(dt, 1 - day, h && h.kind === 'human' && !h.eaten && ['hunt', 'strike', 'eat'].includes(spider.mode) ? h.pos : null); }
   grade.uniforms.uNight.value = (1 - day) * (1 - .7 * ledK);
   ledBar.userData.strip.material.color.setRGB(3, 3.05, 3.2).multiplyScalar(ledK + .02);
   bulb.material.color.setRGB(4, 1.9, .7).multiplyScalar(lampK + .01);
@@ -597,6 +607,10 @@ function loop() {
   // haze between the buildings in the film shot; shafts of light through the street gaps by day
   FOG0 = FOG0 || scene.fog.density; scene.fog.density = lerp(scene.fog.density, cine ? FOG0 * 2.4 : FOG0, clamp(dt, 0, 1));
   controls.update();
+  if (eyes) { const p = eyesOf();                                  // his eyes: a point just in front of his face, looking where his head points
+    if (!p) { setEyes(false); log('มุมมองสายตาชัยภัทรปิดแล้ว (เขาไม่อยู่ในเมืองแล้ว)'); }
+    else { const n = p.hum.j.neck; eyeP.set(0, .141, .13); n.localToWorld(eyeP); eyeF.set(0, .12, 6); n.localToWorld(eyeF);
+      if (eyeL.y < -1e8) eyeL.copy(eyeF); eyeL.lerp(eyeF, clamp(dt * 7, 0, 1)); camera.position.copy(eyeP); camera.lookAt(eyeL); controls.target.copy(eyeL); } }
   // focus on the orbit target (the spider when following); shallower DOF the closer the camera, like a macro lens
   const fd = camera.position.distanceTo(controls.target);
   bokeh.uniforms.focus.value = fd; bokeh.uniforms.aperture.value = clamp(.0065 / fd, .00005, .0006);
