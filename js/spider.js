@@ -322,7 +322,9 @@ class Spider {
     let gh = -1e9; for (const k of SOLIDS) gh = Math.max(gh, gridY(k.grid, hip.x, hip.z)); const dropW = l.i >= 2 ? .9 : l.i === 1 ? .45 : .15;
     for (let k = 0; k <= 9; k++) {
       const f = 1 - k * .08, x = hip.x + dx * f, z = hip.z + dz * f, y = groundY(x, z) + L * .005;
-      let bad = Math.max(0, Math.hypot(x - hip.x, y - hip.y, z - hip.z) - reach) + Math.max(0, gh - y - L * .18) * dropW;
+      // a foothold far above or below the hip must be closer in, so the knee keeps its arch instead of a straight pole
+      const rEff = reach * (1 - .24 * clamp(Math.abs(y - hip.y) / (L * .35) - .3, 0, 1));
+      let bad = Math.max(0, Math.hypot(x - hip.x, y - hip.y, z - hip.z) - rEff) + Math.max(0, gh - y - L * .18) * dropW + Math.max(0, hip.y - y - L * .24) * .8;
       for (let u = .2; u < .95; u += .15) { const over = groundY(hip.x + (x - hip.x) * u, hip.z + (z - hip.z) * u) - (hip.y + (y - hip.y) * u) - L * .07 * Math.sin(Math.PI * u);
         if (over > 0) bad += over; }
       if (bad <= 0) return v.set(x, y, z);
