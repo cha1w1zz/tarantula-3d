@@ -175,12 +175,12 @@ let GRASS = null;
   for (const b of B) {
     const c = Math.cos(b.rot), s = Math.sin(b.rot), W = (lx, lz) => [b.x + lx * c + lz * s, b.z - lx * s + lz * c];
     const P = 2 * (b.w + b.d);
-    for (let u = LR() * 1.2; u < P; u += lr(1.4, 2.6)) {
+    for (let u = LR() * 1.2; u < P; u += lr(1.5, 2.8) * (b.garden ? .8 : 1.15)) {
       let lx, lz, nx = 0, nz = 0, q = u;
       if (q < b.w) { lx = -b.w / 2 + q; lz = b.d / 2; nz = 1; } else if ((q -= b.w) < b.d) { lx = b.w / 2; lz = b.d / 2 - q; nx = 1; }
       else if ((q -= b.d) < b.w) { lx = b.w / 2 - q; lz = -b.d / 2; nz = -1; } else { q -= b.w; lx = -b.w / 2; lz = -b.d / 2 + q; nx = -1; }
       const o = lr(.2, .9), [x, z] = W(lx + nx * o, lz + nz * o);
-      if ((z < -35.5 || x > 54) && LR() < .8) continue;
+      if ((z < -35.5 || x > 53) && LR() < .95) continue;
       if (!patchy(x, z, -.18)) continue;
       clump(x, z, 5 + (LR() * 6 | 0), lr(.8, 1.7), .35 + o * .25, 0);
     }
@@ -211,7 +211,7 @@ let GRASS = null;
     if (m > .05 && !inCity(cx, cz)) cells.push([cx, cz, m]);
   }
   cells.sort((a, b) => b[2] - a[2]);
-  for (const [cx, cz, m] of cells) { if (list.length >= BUDGET) break; clump(cx, cz, 9 + (LR() * 6 | 0) + (m > .35 ? 3 : 0), lr(.7, 1.4) * (.75 + .4 * sstep(.05, .5, m)), .55, .3); }
+  for (const [cx, cz, m] of cells) { if (list.length >= BUDGET) break; clump(cx, cz, 9 + (LR() * 6 | 0) + (m > .35 ? 3 : 0), lr(.9, 1.7) * (.75 + .4 * sstep(.05, .5, m)), .6, .3); }
   if (list.length > BUDGET) list.length = BUDGET;
   list.sort((a, b) => a.g - b.g);
   addFoliage(bg, track(new THREE.MeshStandardMaterial({ map: GRASS_TEX, side: THREE.DoubleSide, roughness: .75 }), .3),
