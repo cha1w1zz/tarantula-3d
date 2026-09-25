@@ -311,10 +311,33 @@ function gridY(g, x, z) {
   const ix = fx | 0, iz = fz | 0, tx = fx - ix, tz = fz - iz, H = g.H, o = iz * g.w + ix;
   return lerp(lerp(H[o], H[o + 1], tx), lerp(H[o + g.w], H[o + g.w + 1], tx), tz);
 }
+const SOLIDS = [];                                             // buildings (game.js fills it from city.js): same height grids as ROCKS
 function groundY(x, z) {
   let y = -1e9;
   for (const k of ROCKS) if (k.grid) y = Math.max(y, gridY(k.grid, x, z));
+  for (const k of SOLIDS) y = Math.max(y, gridY(k.grid, x, z));
   return y > -1e8 ? y : soilY(x, z);
+}
+// footprint-local coordinates (same yaw convention as Object3D.rotation.y) and the nearest wall point, in world space
+function solidNear(k, x, z) {
+  const dx = x - k.x, dz = z - k.z, lx = dx * k.c - dz * k.s, lz = dx * k.s + dz * k.c;
+  const qx = clamp(lx, -k.hw, k.hw), qz = clamp(lz, -k.hd, k.hd), inside = qx === lx && qz === lz;
+  let ox = lx - qx, oz = lz - qz;
+  if (inside) { const ex = k.hw - Math.abs(lx), ez = k.hd - Math.abs(lz); if (ex < ez) { ox = Math.sign(lx || 1) * -ex; oz = 0; } else { ox = 0; oz = Math.sign(lz || 1) * -ez; } }
+  return { inside, d: Math.hypot(ox, oz) * (inside ? -1 : 1), nx: (ox * k.c + oz * k.s) / (Math.hypot(ox, oz) || 1) * (inside ? -1 : 1), nz: (-ox * k.s + oz * k.c) / (Math.hypot(ox, oz) || 1) * (inside ? -1 : 1) };
+}
+// leg joints: a point beside or under a building's wall is pushed out sideways (the rock rule — push along the ground
+// normal — would lift it onto the roof). `from` (default v) is the point tested, e.g. a segment middle; v moves by `mul` × its
+// way out. Returns true when it moved v.
+function solidPush(v, r, from, mul) {
+  from = from || v;
+  for (const k of SOLIDS) {
+    const n = solidNear(k, from.x, from.z); if (n.d >= r) continue;
+    const e = Math.max(0, n.d) + .15, top = gridY(k.grid, from.x - n.nx * e, from.z - n.nz * e);
+    if (from.y > top - r * .5) continue;                               // up on the roof: the normal ground rule handles it
+    const s = (r - n.d) * (mul || 1); v.x += n.nx * s; v.z += n.nz * s; return true;
+  }
+  return false;
 }
 function groundN(x, z, e) { e = e || .12; return new V3(groundY(x - e, z) - groundY(x + e, z), 2 * e, groundY(x, z - e) - groundY(x, z + e)).normalize(); }
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -378,6 +401,32 @@ function welded(geo) {
     let j = seen.get(key); if (j === undefined) { j = pos.length / 3; seen.set(key, j); pos.push(x, y, z); } idx.push(j); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
 }
+// walkable height grid: rasterise every triangle from above (max height per cell); `use(i)` picks the vertices that count
+// for the bounds. Cells store max(mesh, soil), which blends seamlessly into soilY at the grid edge. Rocks and buildings share it.
+function heightGrid(p, idx, use, cs) {
+  cs = cs || .07;
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  const n = p.count;
+  for (let i = 0; i < n; i++) if (use(i)) { x0 = Math.min(x0, p.getX(i)); x1 = Math.max(x1, p.getX(i)); z0 = Math.min(z0, p.getZ(i)); z1 = Math.max(z1, p.getZ(i)); }
+  x0 -= cs * 3; z0 -= cs * 3;
+  const gw = Math.ceil((x1 - x0) / cs) + 4, gd = Math.ceil((z1 - z0) / cs) + 4, H = new Float32Array(gw * gd).fill(-1e9);
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i], b = idx[i + 1], e = idx[i + 2], ax = p.getX(a), az = p.getZ(a), bx = p.getX(b), bz = p.getZ(b), ex = p.getX(e), ez = p.getZ(e);
+    const den = (bz - ez) * (ax - ex) + (ex - bx) * (az - ez); if (Math.abs(den) < 1e-9) continue;
+    const ia = Math.max(0, Math.ceil((Math.min(ax, bx, ex) - x0) / cs)), ib = Math.min(gw - 1, Math.floor((Math.max(ax, bx, ex) - x0) / cs));
+    const ja = Math.max(0, Math.ceil((Math.min(az, bz, ez) - z0) / cs)), jb = Math.min(gd - 1, Math.floor((Math.max(az, bz, ez) - z0) / cs));
+    for (let gj = ja; gj <= jb; gj++) for (let gi = ia; gi <= ib; gi++) {
+      const px = x0 + gi * cs, pz = z0 + gj * cs, w0 = ((bz - ez) * (px - ex) + (ex - bx) * (pz - ez)) / den, w1 = ((ez - az) * (px - ex) + (ax - ex) * (pz - ez)) / den, w2 = 1 - w0 - w1;
+      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+      const hy2 = w0 * p.getY(a) + w1 * p.getY(b) + w2 * p.getY(e), o = gj * gw + gi; if (hy2 > H[o]) H[o] = hy2;
+    }
+  }
+  // near-vertical faces cover almost no cell centres: splat their vertices too so steep walls keep their height
+  for (let i = 0; i < n; i++) if (use(i)) { const gi = Math.round((p.getX(i) - x0) / cs), gj = Math.round((p.getZ(i) - z0) / cs);
+    if (gi >= 0 && gj >= 0 && gi < gw && gj < gd) { const o = gj * gw + gi; if (p.getY(i) > H[o]) H[o] = p.getY(i); } }
+  for (let gj = 0; gj < gd; gj++) for (let gi = 0; gi < gw; gi++) { const o = gj * gw + gi; H[o] = Math.max(H[o], soilY(x0 + gi * cs, z0 + gj * cs)); }
+  return { x0, z0, cs, w: gw, d: gd, H };
+}
 /* a boulder = sphere clipped by random planes (flat fracture faces with slightly rounded edges), then lumps,
    faint bedding layers (no carved fissure grooves: they read as drawn outlines); the lower part is sunk into the substrate */
 ROCKS.forEach(k => {
@@ -429,27 +478,7 @@ ROCKS.forEach(k => {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const mesh = new THREE.Mesh(geo, rockMat); mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh);
-  // walkable height grid: rasterise every triangle from above (max height per cell)
-  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
-  for (let i = 0; i < n; i++) if (cnt[i] && p.getY(i) > soil[i] - .3) { x0 = Math.min(x0, p.getX(i)); x1 = Math.max(x1, p.getX(i)); z0 = Math.min(z0, p.getZ(i)); z1 = Math.max(z1, p.getZ(i)); }
-  const cs = .07; x0 -= cs * 3; z0 -= cs * 3;
-  const gw = Math.ceil((x1 - x0) / cs) + 4, gd = Math.ceil((z1 - z0) / cs) + 4, H = new Float32Array(gw * gd).fill(-1e9);
-  for (let i = 0; i < idx.length; i += 3) {
-    const a = idx[i], b = idx[i + 1], e = idx[i + 2], ax = p.getX(a), az = p.getZ(a), bx = p.getX(b), bz = p.getZ(b), ex = p.getX(e), ez = p.getZ(e);
-    const den = (bz - ez) * (ax - ex) + (ex - bx) * (az - ez); if (Math.abs(den) < 1e-9) continue;
-    const ia = Math.max(0, Math.ceil((Math.min(ax, bx, ex) - x0) / cs)), ib = Math.min(gw - 1, Math.floor((Math.max(ax, bx, ex) - x0) / cs));
-    const ja = Math.max(0, Math.ceil((Math.min(az, bz, ez) - z0) / cs)), jb = Math.min(gd - 1, Math.floor((Math.max(az, bz, ez) - z0) / cs));
-    for (let gj = ja; gj <= jb; gj++) for (let gi = ia; gi <= ib; gi++) {
-      const px = x0 + gi * cs, pz = z0 + gj * cs, w0 = ((bz - ez) * (px - ex) + (ex - bx) * (pz - ez)) / den, w1 = ((ez - az) * (px - ex) + (ax - ex) * (pz - ez)) / den, w2 = 1 - w0 - w1;
-      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
-      const hy2 = w0 * p.getY(a) + w1 * p.getY(b) + w2 * p.getY(e), o = gj * gw + gi; if (hy2 > H[o]) H[o] = hy2;
-    }
-  }
-  // near-vertical faces cover almost no cell centres: splat their vertices too so steep walls keep their height
-  for (let i = 0; i < n; i++) if (cnt[i]) { const gi = Math.round((p.getX(i) - x0) / cs), gj = Math.round((p.getZ(i) - z0) / cs);
-    if (gi >= 0 && gj >= 0 && gi < gw && gj < gd) { const o = gj * gw + gi; if (p.getY(i) > H[o]) H[o] = p.getY(i); } }
-  for (let gj = 0; gj < gd; gj++) for (let gi = 0; gi < gw; gi++) { const o = gj * gw + gi; H[o] = Math.max(H[o], soilY(x0 + gi * cs, z0 + gj * cs)); }
-  k.grid = { x0, z0, cs, w: gw, d: gd, H };
+  k.grid = heightGrid(p, idx, i => cnt[i] && p.getY(i) > soil[i] - .3);
 });
 
 /* ---------- hollow log hide ---------- */

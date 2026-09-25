@@ -406,7 +406,7 @@ const contactMesh = (() => {
       put(bx, bz, spider.yaw, L * .2, L * .32, .4 * fl * clamp(1 - (p.y - gy) / (L * .2), 0, 1));                    // แกนกลางเข้มกว่า (AO ใต้ท้อง)
       for (const l of spider.legs) { const t = l.J.tip, h = t.y - groundY(t.x, t.z);
         put(t.x, t.z, 0, L * .1, L * .1, .55 * clamp(1 - h / (L * .07), 0, 1)); } }                             // ปลายขา: จุดเล็กเข้ม จางลงตอนยกขา
-    for (const q of prey) { if (q.eaten || q.burrowed > .6) continue; const mp = q.mesh.position, h = mp.y - groundY(mp.x, mp.z), big = q.kind === 'dubia' ? 1.25 : 1;
+    for (const q of prey) { if (q.eaten || q.burrowed > .6) continue; const mp = q.mesh.position, h = mp.y - groundY(mp.x, mp.z), big = (q.kind === 'dubia' ? 1.25 : 1) * (q.k || 1);
       put(mp.x, mp.z, q.face, 1.3 * big, 2.3 * big, .5 * (1 - q.burrowed) * clamp(1 - h / 1.8, 0, 1)); }
     contactMesh.count = i; contactMesh.visible = i > 0; contactMesh.instanceMatrix.needsUpdate = true;                  // ไม่มีอะไรแตะพื้น = ไม่วาดเลย
   };
