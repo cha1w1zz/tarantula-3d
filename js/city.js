@@ -321,7 +321,6 @@ const CITY = (() => {
   function parapet(w, d, top, h, col) { const t = .3, O = { col, nb: 1, su: 1.5 };
     box(0, top, d / 2 - t / 2, w, h, t, O); box(0, top, -d / 2 + t / 2, w, h, t, O); box(w / 2 - t / 2, top, 0, t, h, d - 2 * t, O); box(-w / 2 + t / 2, top, 0, t, h, d - 2 * t, O);
     mossRect(w, d, top + h, .6, .55);
-    for (let k = 0; k < 4; k++) lump(MOSSB, rr(-w / 2 + 1, w / 2 - 1), top, rr(-d / 2 + 1, d / 2 - 1), rr(1, 2.2), .16, rr(.8, 1.8), MC());   // moss carpets on the flat roof
   }
   // flat-roofed box shell
   function block(S, w, d, top, O) { for (const k in S) sideFace(S[k], 0, top, Object.assign({ su: .8, sv: 1.2 }, O)); face([-w / 2, top, d / 2], [w, 0, 0], [0, 0, -d], { col: ROOFC, su: 1.5 }); }
@@ -388,10 +387,10 @@ const CITY = (() => {
       D.anchor = [w * .3, g + 5.5, d / 2];
     },
     mansion(D, w, d, g, S) {                    // apartment block with balcony bands (the tallest)
-      const n = D.f, top = g + 3.4 + (n - 1) * 3.1, col = lin(D.col);
+      const n = D.f, top = g + 3.4 + (n - 1) * 2.9, col = lin(D.col);
       D.h = top + 1.1 + 2.6 - g; ctx.top = D.base + top + 1.1;
       block(S, w, d, top, { tile: T.PLAST, col }); parapet(w, d, top, 1.1, col);
-      for (let k = 1; k < n; k++) { const y = g + 3.4 + (k - 1) * 3.1;
+      for (let k = 1; k < n; k++) { const y = g + 3.4 + (k - 1) * 2.9;
         box(0, y - .2, d / 2 + .7, w - .1, .2, 1.4, { col, su: 2 }); box(0, y, d / 2 + 1.33, w - .1, 1, .14, { col, su: 1.5 });
         for (const s of [-1, 1]) box(s * (w / 2 - .12), y, d / 2 + .7, .14, 1, 1.26, { col, nb: 1 });
         mossAlong([-w / 2 + .3, d / 2 + 1.33], [w / 2 - .3, d / 2 + 1.33], y + 1, .35, .3);
@@ -509,7 +508,7 @@ const CITY = (() => {
   /* ---------- the town plan (back row faces the street at z ≈ -20; right strip faces the street at x ≈ 33) ---------- */
   const E = -Math.PI / 2, W = Math.PI / 2;
   const PLAN = [
-    { kind: 'wood', x: -50.3, z: -29.5, w: 12, d: 11, col: '#cfc2a4', kaw: '#7f8a96', sign: 0 },
+    { kind: 'wood', x: -50.3, z: -29.5, w: 12, d: 11, col: '#cfc2a4', kaw: '#666d76', sign: 0 },
     { kind: 'row', x: -38.5, z: -29.5, w: 8, d: 11, f: 3, tile: T.TILE, col: '#b48f74', lean: .12, neon: 6, fl: 1.5 },
     { kind: 'row', x: -27.5, z: -29, w: 9, d: 10, f: 2, tile: T.PLAST, col: '#bfb49c', flat: 1, hsign: SHOKUDO },
     { kind: 'office', x: -15, z: -29.5, w: 11, d: 11, f: 5, tile: T.TILE, col: '#c7bba2', sign: 1 },
@@ -519,7 +518,7 @@ const CITY = (() => {
     { kind: 'mansion', x: 31, z: -30, w: 11, d: 12, f: 7, col: '#d0c8b8' },
     { kind: 'row', x: 48, z: -30, w: 15, d: 12, f: 4, tile: T.TILE, col: '#8fa39a', neon: 7, fl: .71, tank: 1 },
     { kind: 'store', x: 46, z: -8, w: 12, d: 15, rot: E, col: '#d8d4ca' },
-    { kind: 'wood', x: 45, z: 7, w: 12, d: 12, rot: E, col: '#c9bfa6', kaw: '#8a929c', sign: 4, hsign: SHOKUDO },
+    { kind: 'wood', x: 45, z: 7, w: 12, d: 12, rot: E, col: '#c9bfa6', kaw: '#6d6660', sign: 4, hsign: SHOKUDO },
     { kind: 'row', x: 45, z: 24, w: 11, d: 12, rot: E, f: 2, tile: T.PLAST, col: '#cbb89a', sign: 3 },
     { kind: 'wood', x: 24.5, z: 17, w: 8, d: 8, rot: W, col: '#b8ad96', kaw: '#6e6660' },
     { kind: 'shed', x: 24, z: 3, w: 7, d: 5, rot: W, hh: 3.6, col: '#8f9291' },
