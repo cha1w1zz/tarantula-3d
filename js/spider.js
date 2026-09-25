@@ -425,6 +425,7 @@ class Spider {
     const knee = hipW.clone().addScaledVector(dir, x).addScaledVector(perp, y);
     if (this.st.hidden < .3) this.unclip(hipW, knee, ankle, base, l.a, l.b, l.c, L * .02);
     const tip = ankle.clone().add(base.clone().sub(ankle).setLength(l.c));
+    if (this.st.hidden < .3) { const lift = groundY(tip.x, tip.z) + L * .012 - tip.y; if (lift > 0) tip.y += lift; }   // metatarsus end never sinks into a rock flank
     this.orient(l.A, hipW, knee); this.orient(l.B, knee, ankle); this.orient(l.C, ankle, tip);
     l.k1.position.copy(knee); l.k2.position.copy(ankle);
     if (l.T) { this.orient(l.T, tip, tip.clone().add(tdir)); l.k3.position.copy(tip); }
