@@ -19,6 +19,10 @@ if (typeof CITY !== 'undefined') {
     SOLIDS.push(k); });
 }
 const walls = L => SOLIDS.filter(k => k.h > L * CLIMB);        // too tall to step onto at this size
+// street props (poles, vending machines, rubble): in the way of a small spider and of prey; a kaiju just steps past them
+const PROPS = typeof CITY !== 'undefined' && CITY.props ? CITY.props : [];
+PROPS.forEach(p => preyObs.push({ x: p.x, z: p.z, r: p.r, h: 20 }));
+const obstaclesFor = L => L < 14 ? obstacles.concat(PROPS) : obstacles;
 let S = null, spider = null, vibOn = true, follow = false, fast = false, TM = 1, quality = 'high';
 let envLevel = -1;   // env-map level last applied (spider.js reads it for materials created later)
 const SAVE_KEY = 'tarantula3d-v2';
@@ -283,7 +287,7 @@ function drive(dt, target, maxSpeed) {
   const ahead = groundY(sp.pos.x + fwd.x * L * .3, sp.pos.z + fwd.z * L * .3) - groundY(sp.pos.x, sp.pos.z);
   v *= clamp(1 - ahead / (L * .3) * .6, .4, 1.1);            // climbing a rock is slower than walking on soil
   const des = fwd.multiplyScalar(v);
-  obstacles.forEach(o => { const ox = sp.pos.x - o.x, oz = sp.pos.z - o.z, od = Math.hypot(ox, oz) || 1, R = o.r + L * .35;
+  obstaclesFor(L).forEach(o => { const ox = sp.pos.x - o.x, oz = sp.pos.z - o.z, od = Math.hypot(ox, oz) || 1, R = o.r + L * .35;
     if (od < R + L * .4) { const push = (R + L * .4 - od) / (L * .4), side = Math.sign(ox * dz - oz * dx) || 1;
       des.x += (ox / od - oz / od * side * .8) * maxSpeed * push * .9; des.z += (oz / od + ox / od * side * .8) * maxSpeed * push * .9; } });   // slide around, never stall head-on
   for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .35;           // buildings: slide along the wall
@@ -427,7 +431,7 @@ function tick(dt) {
   sp.pos.x = clamp(sp.pos.x, -TW / 2 + L * .45, TW / 2 - L * .45); sp.pos.z = clamp(sp.pos.z, -TD / 2 + L * .45, TD / 2 - L * .45);
   // solid log walls: the spider only gets under the log through the open end (its route), never through the bark
   if (pushOutOfLog(sp.pos, L * .22, nav.prev, navDims(L).ch)) { sp.vel.multiplyScalar(.5); }
-  obstacles.forEach(o => { const dx = sp.pos.x - o.x, dz = sp.pos.z - o.z, d = Math.hypot(dx, dz) || 1, R = o.r - .3 + L * .18;
+  obstaclesFor(L).forEach(o => { const dx = sp.pos.x - o.x, dz = sp.pos.z - o.z, d = Math.hypot(dx, dz) || 1, R = o.r - .3 + L * .18;
     if (d < R) { sp.pos.x = o.x + dx / d * R; sp.pos.z = o.z + dz / d * R; } });
   for (const k of walls(L)) { const n = solidNear(k, sp.pos.x, sp.pos.z), R = L * .3;
     if (n.d < R) { sp.pos.x += n.nx * (R - n.d); sp.pos.z += n.nz * (R - n.d); } }
