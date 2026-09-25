@@ -118,11 +118,11 @@ function CITY_EXT(K) {
           if (y > g + .8) mo(p[0], y, p[2], rr(.25, .5), rr(.08, .16), rr(.25, .5)); }
         if (key === 'B' || key === 'R') vinesTop(s, 3, a => { const p = at(s, a, 0, 0); return min(Hf(p[0], p[2]), H); }, 4.5);
       });
-      // upper floor: what is left of it, and one piece hanging down into the rubble
+      // upper floor: what is left of it; one fallen piece lies almost flat on the ground floor (low: legs step on it, not through it)
       slab([-w / 2 + t, fl, d / 2 - t], [w - 2 * t, 0, 0], [0, 0, -(d - 2 * t)], .25, { col: low, su: .7, sv: .7, keep: (i, j, nu, nv) => {
         const x = -w / 2 + t + (i + .5) / nu * (w - 2 * t), z = d / 2 - t - (j + .5) / nv * (d - 2 * t); return Hf(x, z) > fl + 1.3 + (hash(i, j + 50) - .5) * 1.4; } }, .6);
-      put(-w * .05, fl, -d * .08, .8, .35, .12, () => { box(0, -.25, 1.25, 2.6, .25, 2.5, { col: low, su: 1 });
-        for (let k = 0; k < 4; k++) rebar(rr(-1.2, 1.2), -.1, 2.5, rr(-.2, .2), rr(-.1, .2), rr(.3, .6)); mo(.3, 0, 1.6, .8, .12, .7); });
+      put(w * .15, g - .05, -d * .18, .07, .35, .05, () => { box(0, 0, 0, 2.6, .25, 2.5, { col: low, su: 1 });
+        for (let k = 0; k < 4; k++) rebar(rr(-1.2, 1.2), .1, 1.25, rr(-.2, .2), rr(-.1, .2), rr(.3, .6)); mo(.3, .25, .4, .8, .12, .7); });
       ctx().inner = 1; face([-w / 2 + t, g + .02, d / 2 - t], [w - 2 * t, 0, 0], [0, 0, -(d - 2 * t)], { tile: T.CONC, col: low, su: 3 }); ctx().inner = 0;
       heap(-w * .2, g - .25, d * .12, 2.4, 1.9, 1.8, 24, { moss: .2, mix: [[T.PLAST, col], [T.TILE, col]] });
       for (let k = 0; k < 4; k++) mo(rr(-w / 2 + .8, w / 2 - .8), g + .05, rr(-d / 2 + .8, d / 2 - .8), rr(.5, 1.1), rr(.1, .2), rr(.5, 1));
@@ -291,7 +291,7 @@ function CITY_EXT(K) {
   /* ---------- flat bits that stitch the zones together (not solid: all ≤ .3 high) ---------- */
   function decorate() {
     const ok = (x, z) => inTank(x, z, 1.5) && !lotInside(x, z, .4) && !underLog(x, z) && hypot(x - LOG_ENTRY.x, z - LOG_ENTRY.z) > 4.5 &&
-      hypot(x - dishPos.x, z - dishPos.z) > 6.5 && groundY(x, z) < soilY(x, z) + .1;
+      !inPond(x, z, 1.5) && groundY(x, z) < soilY(x, z) + .1;
     const MIX = [[0, SLABC], [0, RUBC], [0, RUBC], [T.ASPH, lin('#9a9a96')], [T.ASPH, lin('#8e8e8a')], [T.TILE, lin('#8d8b84')], [T.KAWARA, KAWC]];
     const piece = (x, z, big) => { if (!ok(x, z)) return;
       const m = pick(MIX), s = big ? rr(.7, 1.4) : rr(.3, .7), h = m[0] === T.ASPH ? .09 : rr(.1, .2);
