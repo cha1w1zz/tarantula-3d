@@ -96,3 +96,10 @@ Render on demand: after load set `window.requestAnimationFrame = () => 0`, step 
 
 ## Known open items
 Big spiders (≥ 31) can still dip a leg ~1–2 into thin low garden walls / rocks (~5% of span). No true vertical wall-climbing: tall buildings are walls, the spider only steps onto roofs lower than 0.35 × span (a wall-walking gait would be a new system). Log interior a bit dark; ferns slightly stylised (sway in wind + lean from spider body via shader, not per-leaf physics); big spiders' legs can clip log walls inside the tunnel; no sound yet.
+
+## Unreal port (`unreal/`)
+- Goal: port the game to UE 5.8+ (Blueprint + Python, no C++). Owner is on Windows; runs Claude Code locally with Epic's Unreal MCP plugin (`unreal-engine-skills-for-claude-code@claude-plugins-official`, server `http://127.0.0.1:8000/mcp`).
+- `unreal/setup.ps1` (+ `setup.bat`): one-shot Windows installer (Git via winget, Claude Code, clone to `~\tarantula-3d`, plugin, opens project + game + claude with a task prompt). Saved as UTF-8 with BOM (Windows PowerShell 5.1).
+- `unreal/TarantulaUE/TarantulaUE.uproject`: plugins PythonScriptPlugin, EditorScriptingUtilities, ModelContextProtocol, AllToolsets, Interchange. `Content/Python/init_unreal.py` starts the MCP server 5 s after editor load and, first time, runs `unreal/import_tarantula.py` if `~/Downloads/tarantula-scene.glb` exists.
+- `js/export.js` + `lib/GLTFExporter.js`: drawer button `#tExport` → `tarantula-scene.glb` (world-space baked, plain PBR materials, merged per material, groups World/Spider/Human_*/Prey_*; custom-shader things like water/grass wind/beams/webs are skipped). Headless test: 82 MB, 1.6 M tris, 60 meshes.
+- Plan: 1 export ✅ · 2 import scene ✅ · 3 spider movement/IK/needs · 4 prey, people, survival, heli · 5 Thai UI, save, sound, water/grass/webs.

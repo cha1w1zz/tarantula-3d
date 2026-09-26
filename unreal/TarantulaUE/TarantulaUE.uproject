@@ -1,0 +1,13 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.8",
+	"Category": "",
+	"Description": "บึ้งไทย 3D — Unreal version (Blueprint only, no C++)",
+	"Plugins": [
+		{ "Name": "PythonScriptPlugin", "Enabled": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true },
+		{ "Name": "ModelContextProtocol", "Enabled": true },
+		{ "Name": "AllToolsets", "Enabled": true },
+		{ "Name": "Interchange", "Enabled": true }
+	]
+}
