@@ -13,6 +13,7 @@
    ===================================================================== */
 const DAY_S = 12, ROUND_DAYS = 30;                                // 1 survival day = 12 s real (× fast-forward) → 30 days ≈ 6 min
 const HUM = { dodge: .2, need: .5, walk: 1.4, hurry: 3.2, run: 5, sprint: 9.5, jog: .55, acc: 16, turn: 10, eatDays: 5, drinkDays: 3.5, sprintS: 5.5, jukeCost: .12, jukeCD: 1.4 };
+const STORE_COOL = DAY_S * 2.5;   // a store just eaten at is off-limits for a while: forces trips to spread across the town, not always the nearest place
 
 /* ---------- where a person can walk: a 1-unit grid (buildings, rocks, pond, log, tank edge blocked), same format as navGrid ---------- */
 const HNAV = { G: null, stores: [], hides: [], pond: [] };
@@ -192,7 +193,7 @@ function humanAI(p, dt, sp, d) {
   } else if (A.st === 'trip') {
     if (A.route.length) { head = steerRoute(p, A); want = (A.why === 'hide' && !night ? HUM.walk : HUM.hurry) * weak; }   // errands: brisk; moving cover by day: a stroll
     else if (A.why === 'hide') goHide(p, sp, false, true);
-    else { A.st = 'act'; A.t = A.why === 'drink' ? 3.2 : 3.4; }
+    else { A.st = 'act'; A.t = A.why === 'drink' ? 3.2 : 3.4; if (A.why === 'eat' && A.goal) A.goal.usedAt = ROUND.t; }
   } else if (A.st === 'act') {   // eating / drinking on the spot (human.js poses it from p.acting)
     if (A.t <= 0) { if (A.why === 'eat') { A.H = 1; ROUND.stats.meals++; humanSay(p, 'ate'); log(`🍙 ${p.name}แอบเข้า${A.goal && A.goal.name || 'ร้าน'}หาของกิน อิ่มแล้ว`); }
       else if (A.why === 'drink') { A.W = 1; ROUND.stats.drinks++; humanSay(p, 'drank'); log(`💧 ${p.name}แอบไปกินน้ำที่บ่อ หายคอแห้งแล้ว`); }
@@ -215,7 +216,9 @@ function planTrip(p, sp) {
   const A = p.ai, H = humanNav(); let goal = null, why = 'hide';
   const nearest = (list, n) => { const l = list.slice().sort((a, b) => a.p.distanceTo(p.pos) - b.p.distanceTo(p.pos)).slice(0, n); return l[Math.random() * l.length | 0]; };
   if (A.W < HUM.need && A.W <= A.H + .1) { why = 'drink'; goal = nearest(H.pond.map(q => ({ p: q })), 4); }
-  else if (A.H < HUM.need) { why = 'eat'; goal = nearest(H.stores, 3); }
+  else if (A.H < HUM.need) { why = 'eat';                 // a store someone just ate at is on cooldown, so a repeat trip must go to a different one
+    const open = H.stores.filter(s => !(s.usedAt && ROUND.t - s.usedAt < STORE_COOL));
+    goal = nearest(open.length ? open : H.stores, 3); }
   if (!goal || !goal.p) { why = 'hide'; const c = H.hides.filter(h => h.p.distanceTo(p.pos) > 8 && h.p.distanceTo(p.pos) < 30 && h.p.distanceTo(sp.pos) > sp.span * 1.5); goal = c[Math.random() * c.length | 0]; }
   if (!goal) { A.st = 'hide'; A.t = rand(2, 4); return; }
   A.st = 'trip'; A.why = why; A.goal = goal; A.route = humanRoute(p.pos, goal.p, Math.min(A.H, A.W) > .25 && Math.random() < .35); ROUND.stats.trips++;
