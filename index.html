@@ -154,11 +154,11 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
     <li>กด⚙ตั้งค่า → 🧭มุมกล้อง / 👁ส่องคน: กดวนมุมกล้อง/คนที่ส่องดู · ปุ่ม 1–6 = ล็อกมุมกล้อง (0 = อิสระ, 6 = ติดกระจกหน้าตู้เต็มจอ) · H = ซ่อน/แสดง UI</li>
   </ul>
   <ul class="patch">
-    <li><b>ล่าสุด</b> — เพิ่มมุมกล้อง "ติดกระจก" ในปุ่ม 🧭มุมกล้อง (ปุ่ม 6): ชิดกระจกหน้าตู้ตรง ๆ เต็มจอ ไม่มีขอบ เหมือนจอคือกระจกตู้</li>
+    <li><b>ล่าสุด</b> — เพิ่มปุ่ม 📦 ส่งออกไป Unreal (ในตั้งค่า): บันทึกฉากเป็นไฟล์ .glb ไปเปิดใน Unreal Engine</li>
+    <li>เพิ่มมุมกล้อง "ติดกระจก" ในปุ่ม 🧭มุมกล้อง (ปุ่ม 6): ชิดกระจกหน้าตู้ตรง ๆ เต็มจอ ไม่มีขอบ เหมือนจอคือกระจกตู้</li>
     <li>ลดปุ่มกล้องในช่องตั้งค่าจาก 5 เหลือ 2: 🧭มุมกล้อง (รวมมุมล็อก+มุมหนัง+ตู้จริง) และ 👁ส่องคน (รวมตามหลัง+สายตา)</li>
     <li>เพิ่มโหมดบังคับคนเดินเอง (WASD/ลูกศร, Shift วิ่ง) พร้อมแถบอาหาร/น้ำ/สตามินา + ปุ่มกินข้าว/ดื่มน้ำ</li>
     <li>ร้านที่เพิ่งกินไปมีคูลดาว ต้องสลับไปกินร้านอื่นบ้าง ไม่วิ่งไปร้านเดิมซ้ำ ๆ</li>
-    <li>เพิ่มคู่มือเล่น + แพตช์โน้ตนี้ในแถบปุ่มหลัก</li>
   </ul>
 </div>
 
@@ -186,6 +186,8 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
     <button class="btn" id="tSaverWin">🎬 พักจอ (หน้าต่าง)</button>
     <button class="btn" id="tHide">🙈 ซ่อน UI</button>
     <button class="btn on" id="tSound" title="เสียงห้อง/ลม, เสียงเท้าแมงมุม, เฮลิคอปเตอร์ไกล ๆ">🔊 เสียง</button></div>
+  <div class="dGroup"><b>Unreal Engine</b>
+    <button class="btn" id="tExport" title="บันทึกฉากตอนนี้ (ตู้ เมือง แมงมุม เหยื่อ คน) เป็นไฟล์ .glb ไปเปิดใน Unreal — ดูวิธีใน unreal/README.md">📦 ส่งออกไป Unreal (.glb)</button></div>
 </div>
 
 <!-- แถบปุ่มหลัก: 4 ปุ่มที่ใช้บ่อย + สมุดบันทึก + ตั้งค่า -->
@@ -243,3 +245,5 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
 <script src="js/heli.js"></script>
 <script src="js/sound.js"></script>
 <script src="js/perf.js"></script>
+<script src="lib/GLTFExporter.js"></script>
+<script src="js/export.js"></script>
