@@ -14,6 +14,8 @@
 const DAY_S = 12, ROUND_DAYS = 30;                                // 1 survival day = 12 s real (× fast-forward) → 30 days ≈ 6 min
 const HUM = { dodge: .2, need: .5, walk: 1.4, hurry: 3.2, run: 5, sprint: 9.5, jog: .55, acc: 16, turn: 10, eatDays: 5, drinkDays: 3.5, sprintS: 5.5, jukeCost: .12, jukeCD: 1.4 };
 const STORE_COOL = DAY_S * 2.5;   // a store just eaten at is off-limits for a while: forces trips to spread across the town, not always the nearest place
+// player-controlled person (game.js reads WASD/arrows + Shift into CTRL.x/z/sprint each frame; humanAI() hands off to humanManual() while CTRL.who matches)
+const CTRL = { who: null, x: 0, z: 0, sprint: false };
 
 /* ---------- where a person can walk: a 1-unit grid (buildings, rocks, pond, log, tank edge blocked), same format as navGrid ---------- */
 const HNAV = { G: null, stores: [], hides: [], pond: [] };
@@ -112,7 +114,7 @@ const ROUND = {
     this.t += dt * TM; const day = Math.floor(this.t / DAY_S);
     if (day > this.day) { this.day = day;
       if (day < ROUND_DAYS && day % 5 === 0) log(`📅 วันที่ ${day}: ` + (this.p.map(p => `${p.name} (อิ่ม ${Math.round(p.ai.H * 100)}% · น้ำ ${Math.round(p.ai.W * 100)}%)`).join(', ') || 'ยังไม่มีใครในเมือง')); }
-    if (this.day >= ROUND_DAYS && !this.rescuing && this.p.some(p => !p.held)) { this.rescuing = true; this.pend = []; this.saved = 0;
+    if (this.day >= ROUND_DAYS && !this.rescuing && this.p.some(p => !p.held)) { this.rescuing = true; this.pend = []; this.saved = 0; CTRL.who = null;
       const who = this.p.filter(p => !p.held);
       log(`🚁 ครบ ${ROUND_DAYS} วันแล้ว! เฮลิคอปเตอร์กู้ภัยบินลงมารับ${who.map(p => p.name).join('กับ')}`);
       who.forEach((p, i) => { humanSay(p, 'rescue', true); (i ? HELI2 : HELI).rescue(p, () => { if (p.eaten || p.held) return; p.boarded = true; this.saved++; if (spider.prey === p) setMode('idle'); p.remove(); }); }); }
@@ -124,7 +126,7 @@ const ROUND = {
   // caught by the spider: the other one grieves and keeps still behind cover for 8–12 s
   grief(p) { for (const o of this.p) if (o !== p && !o.eaten && !o.held && o.ai) { humanSay(o, 'grief', true); goHide(o, spider, false, true); o.ai.t = rand(8, 12); } },
   stars() { return this.deaths === 0 ? 3 : this.deaths === 1 ? 2 : 1; },   // tuned so all three happen (headless: ~25% / ~60% / ~15%)
-  end(res) { if (!this.on) return; this.on = false; this.result = res;
+  end(res) { if (!this.on) return; this.on = false; this.result = res; CTRL.who = null;
     if (res === 'win') { const st = this.stars(), txt = '⭐'.repeat(st); S.rounds = (S.rounds || 0) + 1; S.best = Math.max(S.best || 0, st);
       log(`🎉 ภารกิจสำเร็จ! ขึ้นเฮลิคอปเตอร์ได้ ${this.saved} คน · ถูกกินระหว่างรอบ ${this.deaths} ครั้ง · ได้ ${txt} (เล่นมาแล้ว ${S.rounds} รอบ · ดีที่สุด ${'⭐'.repeat(S.best)})`); notice(`รอดครบ ${ROUND_DAYS} วัน ${txt}`); }
     else { S.rounds = (S.rounds || 0) + 1; log(`💀 ภารกิจล้มเหลว ไม่มีใครรอดถึงวันที่ ${ROUND_DAYS} (ถูกกิน ${this.deaths} ครั้ง ในวันที่ ${this.day + 1}) · เล่นมาแล้ว ${S.rounds} รอบ`); notice('ภารกิจล้มเหลว'); }
@@ -134,6 +136,7 @@ const ROUND = {
 /* ---------- a person's brain (called from Prey.human every tick) ---------- */
 function humanAI(p, dt, sp, d) {
   const A = p.ai; if (!A) return;
+  if (CTRL.who === p.who) { humanManual(p, dt); return; }   // player has taken over this one: skip the AI state machine entirely
   const T = dt * TM, L = sp.span, night = isNight(), H = humanNav();
   // needs + stamina ceiling; at zero he only gets slower
   A.H = Math.max(0, A.H - T / (DAY_S * HUM.eatDays)); A.W = Math.max(0, A.W - T / (DAY_S * HUM.drinkDays));
@@ -207,6 +210,28 @@ function humanAI(p, dt, sp, d) {
   A.cv += clamp(want - A.cv, -HUM.acc * 1.5 * T, HUM.acc * T); p.yaw = head; p.v = A.cv;
   p.vib = A.cv < .2 ? 0 : A.cv < 2 ? .6 : A.cv < 5 ? 1 : 1.5;   // how hard his steps shake the ground (walk ≪ sprint)
 }
+// player control: needs still drain and stamina still works the same way, but heading/speed come straight from the keyboard
+// (CTRL.x/z, set by game.js each frame) — no AI evasion at all, so getting away from the spider is entirely on the player
+function humanManual(p, dt) {
+  const A = p.ai, T = dt * TM;
+  A.H = Math.max(0, A.H - T / (DAY_S * HUM.eatDays)); A.W = Math.max(0, A.W - T / (DAY_S * HUM.drinkDays));
+  const low = Math.min(A.H, A.W), weak = low <= 0 ? .8 : 1, stMax = .6 + .4 * clamp(low * 2.5, 0, 1);
+  p.panic = 0; p.acting = null;
+  const mag = Math.hypot(CTRL.x, CTRL.z);
+  let want = 0, head = p.yaw;
+  if (mag > .05) { head = Math.atan2(CTRL.x, CTRL.z); const sprint = CTRL.sprint && A.stam > .02;
+    want = (sprint ? HUM.sprint : HUM.hurry) * weak; if (sprint) A.stam -= T / HUM.sprintS; }
+  if (A.cv <= HUM.run + .1) A.stam = Math.min(stMax, A.stam + T * (A.cv < .3 ? .25 : .12));
+  A.stam = clamp(A.stam, 0, stMax);
+  A.cv += clamp(want - A.cv, -HUM.acc * 1.5 * T, HUM.acc * T); p.yaw = head; p.v = A.cv;
+  p.vib = A.cv < .2 ? 0 : A.cv < 2 ? .6 : A.cv < 5 ? 1 : 1.5;
+}
+const nearStore = p => humanNav().stores.some(s => s.p.distanceTo(p.pos) < 3.5);
+const nearPond = p => humanNav().pond.some(q => q.distanceTo(p.pos) < 3.5);
+function tryEat(p) { if (!p || !p.ai) return; if (!nearStore(p)) { log('ต้องเดินไปยืนใกล้ร้านก่อนถึงจะกินได้'); return; }
+  p.ai.H = 1; ROUND.stats.meals++; humanSay(p, 'ate'); log(`🍙 ${p.name}หาของกินที่ร้านจนอิ่ม`); }
+function tryDrink(p) { if (!p || !p.ai) return; if (!nearPond(p)) { log('ต้องเดินไปยืนใกล้บ่อน้ำก่อนถึงจะดื่มได้'); return; }
+  p.ai.W = 1; ROUND.stats.drinks++; humanSay(p, 'drank'); log(`💧 ${p.name}ดื่มน้ำที่บ่อจนหายคอแห้ง`); }
 function steerRoute(p, A) {
   while (A.route.length && Math.hypot(A.route[0].x - p.pos.x, A.route[0].z - p.pos.z) < (A.route.length > 1 ? 1.2 : .7)) A.route.shift();
   const q = A.route[0]; return q ? Math.atan2(q.x - p.pos.x, q.z - p.pos.z) : p.yaw;

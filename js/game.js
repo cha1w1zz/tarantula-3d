@@ -281,6 +281,11 @@ const CHASE = { overHuman: 1.5, acc: 5, turn: 1.5, lungeTurn: .5, biteR: .28, tM
   pair: 1.4, meal: 16 };   // round 6: two people moving shake the ground more (sense range ×pair); a person is only a small meal for a giant (food value)
 function tick(dt) {
   TM = fast ? 6 : 1;
+  if (CTRL.who) { let ix = 0, iz = 0;   // WASD/arrows → world-fixed heading (camera-independent, keeps it simple with free orbit)
+    if (KEYS.w || KEYS.arrowup) iz -= 1; if (KEYS.s || KEYS.arrowdown) iz += 1;
+    if (KEYS.a || KEYS.arrowleft) ix -= 1; if (KEYS.d || KEYS.arrowright) ix += 1;
+    const mag = Math.hypot(ix, iz); CTRL.x = mag ? ix / mag : 0; CTRL.z = mag ? iz / mag : 0; CTRL.sprint = !!KEYS.shift;
+  } else CTRL.x = CTRL.z = 0;
   const hrs = dt * .5 * TM; S.hour += hrs;
   factT -= hrs; if (factT <= 0) { factT = rand(5, 9); log('รู้ไหม: ' + FACTS[factI++ % FACTS.length], true); }
   const night = isNight();
@@ -574,6 +579,18 @@ function setWatch(w) { watchWho = w; focusT = 0; const b = $('tWatch'); b.textCo
   if (w) { if (follow) $('tFollow').click(); if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) $('tTank').click(); if (view === 'top') setView(null); } }
 $('tWatch').onclick = () => { const i = [null, ...PEOPLE_ORDER].indexOf(watchWho), w = [null, ...PEOPLE_ORDER][(i + 1) % 3];
   if (w && !humansOut().length && !ROUND.on) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยส่องตามดู'); return; } setWatch(w); };
+// keyboard WASD/arrow state, read into CTRL.x/z/sprint each tick() while a person is under player control
+const KEYS = {};
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; const k = e.key.toLowerCase(); KEYS[k] = true;
+  if (CTRL.who && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault(); });
+addEventListener('keyup', e => { if (e.target.tagName === 'INPUT') return; KEYS[e.key.toLowerCase()] = false; });
+// บังคับคนเดินเอง (WASD/ลูกศร, Shift = วิ่ง) แทนคนที่กล้อง #tWatch กำลังส่องอยู่: off → ชัยภัทร → ตุ้ย → off; AI ปล่อยมือคนนั้นทันที
+function setControl(w) { CTRL.who = w; if (!w) CTRL.x = CTRL.z = 0; if (w) setWatch(w); }
+$('tControl').onclick = () => { const i = [null, ...PEOPLE_ORDER].indexOf(CTRL.who), w = [null, ...PEOPLE_ORDER][(i + 1) % 3];
+  if (w && !humansOut().some(p => p.who === w)) { log(humansOut().length ? `${PEOPLE[w].name}ยังไม่อยู่ในเมืองตอนนี้ รอสักครู่` : 'ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยบังคับ'); return; }
+  setControl(w); log(w ? `🎮 บังคับ${PEOPLE[w].name}เอง: ใช้ WASD/ลูกศรเดิน, Shift วิ่ง (สตามินาลด) — หนีแมงมุมเองได้เลย` : '🎮 บังคับคน: ปิด (คืนให้ AI คุมเหมือนเดิม)'); };
+$('tEatHum').onclick = () => tryEat(CTRL.who && humansOut().find(p => p.who === CTRL.who));
+$('tDrinkHum').onclick = () => tryDrink(CTRL.who && humansOut().find(p => p.who === CTRL.who));
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
 { const d = document, el = d.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen, fsEl = () => d.fullscreenElement || d.webkitFullscreenElement;
   if (!req) $('tFull').hidden = true;
@@ -662,6 +679,14 @@ function hud() {
   { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยชัยภัทรกับตุ้ยเข้ามาในเมือง (กดซ้ำ = กล้องไปหาทีละคน)' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
   $('vSpan').textContent = S.span + ' ซม.'; $('vMolt').textContent = 'ลอก ' + S.molts + ' ครั้ง';
   const h = Math.floor(S.hour % 24); $('vTime').textContent = `วัน ${Math.floor(S.hour / 24) + 1} · ${String(h).padStart(2, '0')}:00`; $('vDay').textContent = isNight() ? '🌙 กลางคืน' : '☀️ กลางวัน';
+  { const cb = $('tControl'); cb.textContent = '🎮 บังคับคน: ' + (CTRL.who ? PEOPLE[CTRL.who].name : 'ปิด'); cb.classList.toggle('on', !!CTRL.who);
+    const p = CTRL.who && humansOut().find(q => q.who === CTRL.who), hh = $('humanHud'); hh.hidden = !p;
+    if (p) { const A = p.ai, stMax = .6 + .4 * clamp(Math.min(A.H, A.W) * 2.5, 0, 1);
+      $('hcName').textContent = PEOPLE[CTRL.who].name + ' (บังคับเอง)';
+      bar('bHumFood', A.H * 100, A.H < .3 ? 'bad crit' : A.H < .5 ? 'bad' : 'ok'); $('vHumFood').textContent = Math.round(A.H * 100) + '%';
+      bar('bHumWater', A.W * 100, A.W < .3 ? 'bad crit' : A.W < .5 ? 'bad' : 'ok'); $('vHumWater').textContent = Math.round(A.W * 100) + '%';
+      bar('bHumStam', A.stam / stMax * 100, A.stam / stMax < .25 ? 'bad' : ''); $('vHumStam').textContent = Math.round(A.stam / stMax * 100) + '%';
+      $('tEatHum').disabled = !nearStore(p); $('tDrinkHum').disabled = !nearPond(p); } }
 }
 
 /* ---------- start ---------- */

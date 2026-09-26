@@ -33,6 +33,8 @@ h1,h2,.btn{font-family:"Mitr","Sarabun",sans-serif}
 @keyframes barPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.7)}}
 .sub{font-size:11px;color:var(--mute);line-height:1.35;border-top:1px solid var(--edge);padding-top:6px;display:flex;flex-wrap:wrap;gap:0 8px}
 .sub .sci{font-style:italic;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbtns{display:flex;gap:6px}
+.hbtn{flex:1;padding:6px 4px;font-size:12px;text-align:center}
 .tools{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:2;
   display:flex;align-items:center;gap:6px;padding:6px;border-radius:22px;transition:opacity .6s}
 .btn{appearance:none;border:1px solid var(--edge);background:var(--glassHi);color:var(--text);border-radius:10px;padding:9px 14px;font-size:14px;cursor:pointer}
@@ -120,6 +122,18 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
     <div class="m" title="พร้อมลอกคราบ"><span>🐚</span><div class="bar" id="bGrow"><i></i></div><span class="num" id="vGrow">0%</span></div>
   </div>
   <div class="sub"><span class="sci" id="hSp">-</span><span class="num" id="vSpan">-</span><span class="num" id="vMolt">-</span><span class="num" id="vTime">-</span><span id="vDay"></span></div>
+  <div id="humanHud" hidden style="border-top:1px solid var(--edge);padding-top:6px;display:grid;gap:7px">
+    <div style="font-size:12px;font-weight:600;color:var(--acc)" id="hcName"></div>
+    <div class="meters">
+      <div class="m" title="อาหาร"><span>🍙</span><div class="bar" id="bHumFood"><i></i></div><span class="num" id="vHumFood">0%</span></div>
+      <div class="m" title="น้ำ"><span>💧</span><div class="bar" id="bHumWater"><i></i></div><span class="num" id="vHumWater">0%</span></div>
+      <div class="m" title="สตามินา"><span>⚡</span><div class="bar" id="bHumStam"><i></i></div><span class="num" id="vHumStam">0%</span></div>
+    </div>
+    <div class="hbtns">
+      <button class="btn hbtn" id="tEatHum" title="ต้องยืนใกล้ร้านก่อน">🍙 กินข้าว</button>
+      <button class="btn hbtn" id="tDrinkHum" title="ต้องยืนใกล้บ่อน้ำก่อน">💧 ดื่มน้ำ</button>
+    </div>
+  </div>
 </div>
 
 <div class="say" id="say" aria-live="polite"></div>
@@ -136,14 +150,15 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
     <li>ดูแล 4 ค่าบนการ์ดซ้ายบน: 🍽หิว (อย่าปล่อยพุ่งสูง) · 🌡อุณหภูมิ/💧ความชื้น (ให้อยู่ในช่วงพอดี ไม่งั้นลอกคราบยาก) · 🐚พร้อมลอกคราบ (เต็มแล้วแมงมุมจะลอกคราบเอง)</li>
     <li>หลังลอกคราบ เปลือกยังนิ่ม ห้ามให้เหยื่อมีชีวิตราว 1–2 สัปดาห์ในเกม</li>
     <li>กด⚙ตั้งค่า: เปิดโหมดไคจู "ปล่อยชัยภัทร + ตุ้ย" ให้แมงมุมโตแล้วไล่ล่าคนในเมืองร้าง 30 วัน จนเฮลิคอปเตอร์มารับ</li>
+    <li>กด⚙ตั้งค่า → 🎮บังคับคน: บังคับคนในเมืองเดินเอง (WASD/ลูกศร, Shift วิ่ง) มีแถบอาหาร/น้ำ/สตามินาที่การ์ดซ้ายบน + ปุ่มกินข้าว/ดื่มน้ำ (ต้องยืนใกล้ร้าน/บ่อน้ำ) หนีแมงมุมเอง AI จะไม่ช่วยหลบให้</li>
     <li>ปุ่ม 1–5 = ล็อกมุมกล้อง (0 = อิสระ) · H = ซ่อน/แสดง UI</li>
   </ul>
   <ul class="patch">
-    <li><b>ล่าสุด</b> — ร้านที่เพิ่งกินไปมีคูลดาว ต้องสลับไปกินร้านอื่นบ้าง ไม่วิ่งไปร้านเดิมซ้ำ ๆ</li>
+    <li><b>ล่าสุด</b> — เพิ่มโหมดบังคับคนเดินเอง (WASD/ลูกศร, Shift วิ่ง) พร้อมแถบอาหาร/น้ำ/สตามินา + ปุ่มกินข้าว/ดื่มน้ำ</li>
+    <li>ร้านที่เพิ่งกินไปมีคูลดาว ต้องสลับไปกินร้านอื่นบ้าง ไม่วิ่งไปร้านเดิมซ้ำ ๆ</li>
     <li>เพิ่มคู่มือเล่น + แพตช์โน้ตนี้ในแถบปุ่มหลัก</li>
     <li>งานภาพ: โทน golden hour ตอนพระอาทิตย์ขึ้น/ตก, dust ring ตอนกัดเหยื่อทุกชนิด, ผิวเงาวาวชั่วคราวหลังลอกคราบ, แถบ HUD กระพริบตอนวิกฤต</li>
     <li>คนในโหมดไคจูหิว/กระหายน้ำช้าลง (ไม่ต้องวิ่งไปกิน-ดื่มถี่ตอนเร่งเวลา) + เดินเล่นแถวที่ซ่อนบ้างตอนว่าง</li>
-    <li>Round 7: ปรับประสิทธิภาพ (batching, ขาแมงมุม, DOF/เงา/หญ้าถูกลง, ปรับความละเอียดอัตโนมัติ)</li>
   </ul>
 </div>
 
@@ -159,6 +174,7 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
   <div class="dGroup"><b>เหยื่อพิเศษ (ขนาดไคจู)</b>
     <button class="btn" id="tHuman">🏃 ปล่อยชัยภัทร + ตุ้ย</button>
     <button class="btn on" id="tAutoRound" title="ถูกกินแล้วเกิดใหม่ใน 10 วิ, จบรอบแล้วเริ่มรอบใหม่เอง">🔁 เล่นต่ออัตโนมัติ</button>
+    <button class="btn" id="tControl" title="บังคับคนที่อยู่ในเมืองเดินเอง: WASD/ลูกศร, Shift = วิ่ง (กดซ้ำ = คนถัดไป / ปิด)">🎮 บังคับคน: ปิด</button>
     <span class="hint" id="hHuman"></span></div>
   <div class="dGroup"><b>กล้อง</b>
     <button class="btn" id="tCine">🎬 มุมหนัง</button>
