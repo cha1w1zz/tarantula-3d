@@ -27,6 +27,15 @@ dsl('GroundZ', '''
 ''')
 
 # one leg segment (local space of the actor)
+# volume by distance to the player camera (sounds have no attenuation assets)
+fn('CamVol', [('P', 'Vector'), ('Far', 'float')], [('V', 'float')])
+dsl('CamVol', '''
+(fn CamVol (P Far)
+  (bind cm (Game|GetPlayerCameraManager :PlayerIndex 0))
+  (bind cl (Camera|GetCameraLocation :self cm))
+  (return (Math|Float|Clamp(Float) (- 1.0 (/ (Math|Vector|Distance(Vector) cl P) Far)) 0.0 1.0)))
+''')
+
 fn('Seg', [('Idx', 'int'), ('A', 'Vector'), ('B', 'Vector'), ('R', 'float')])
 dsl('Seg', '''
 (fn Seg (Idx A B R)
@@ -174,6 +183,10 @@ dsl('EventGraph', '''
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
   (Variables|Default|SetAge (+ Age dt))
   (Pose :DT dt)
+  (if (and (== Kind 0) (and (not Held) (and (< Speed 5.0) (< (Math|Random|RandomFloat) (* dt 0.12)))))
+    (bind here (Transformation|GetActorLocation))
+    (Audio|PlaySoundatLocation :Sound "/Game/Game/Sound/S_Chirp.S_Chirp" :Location here :VolumeMultiplier (* 0.35 (CamVol :P here :Far 7000.0))
+       :PitchMultiplier (Math|Random|RandomFloatinRange 0.95 1.05)))
   (if (not Held)
     (Utilities|IsValid Spider
       (:"Is Valid" (Move :DT dt)))))

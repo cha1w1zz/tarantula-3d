@@ -4,10 +4,37 @@
 	"Category": "",
 	"Description": "บึ้งไทย 3D — Unreal version (Blueprint only, no C++)",
 	"Plugins": [
-		{ "Name": "PythonScriptPlugin", "Enabled": true },
-		{ "Name": "EditorScriptingUtilities", "Enabled": true },
-		{ "Name": "ModelContextProtocol", "Enabled": true },
-		{ "Name": "AllToolsets", "Enabled": true },
-		{ "Name": "Interchange", "Enabled": true }
+		{
+			"Name": "PythonScriptPlugin",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "EditorScriptingUtilities",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "ModelContextProtocol",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "AllToolsets",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "Interchange",
+			"Enabled": true
+		}
 	]
 }

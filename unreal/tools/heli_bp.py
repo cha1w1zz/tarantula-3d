@@ -15,6 +15,7 @@ comp('Blade2', '/Script/Engine.StaticMeshComponent', {'StaticMesh': M + 'Cube.Cu
 comp('TailHub', '/Script/Engine.SceneComponent')
 comp('TBlade', '/Script/Engine.StaticMeshComponent', {'StaticMesh': M + 'Cube.Cube'}, parent='TailHub')
 comp('Search', '/Script/Engine.SpotLightComponent', {'Intensity': 200000.0, 'AttenuationRadius': 9000.0, 'OuterConeAngle': 16.0, 'InnerConeAngle': 8.0})
+comp('Rotor', '/Script/Engine.AudioComponent', {'Sound': '/Game/Game/Sound/S_Rotor.S_Rotor', 'bAutoActivate': True})
 comp('Beacon', '/Script/Engine.PointLightComponent', {'Intensity': 0.0, 'AttenuationRadius': 900.0})
 for n, t in [('Color', 'int'), ('Ang', 'float'), ('Mode', 'int'), ('T', 'float'), ('Alt', 'float'), ('RX', 'float'), ('RY', 'float'),
              ('Dir', 'float'), ('Yaw', 'float'), ('Done', 'bool'), ('Busy', 'bool')]:
@@ -29,6 +30,15 @@ dsl('Valid', '''
   (Utilities|IsValid A
     (:"Is Valid" (return true))
     (:"Is Not Valid" (return false))))
+''')
+
+# volume by distance to the player camera (sounds have no attenuation assets)
+fn('CamVol', [('P', 'Vector'), ('Far', 'float')], [('V', 'float')])
+dsl('CamVol', '''
+(fn CamVol (P Far)
+  (bind cm (Game|GetPlayerCameraManager :PlayerIndex 0))
+  (bind cl (Camera|GetCameraLocation :self cm))
+  (return (Math|Float|Clamp(Float) (- 1.0 (/ (Math|Vector|Distance(Vector) cl P) Far)) 0.0 1.0)))
 ''')
 
 fn('Part', [('C', '/Script/Engine.SceneComponent'), ('L', 'Vector'), ('R', 'Rotator'), ('S', 'Vector')])
@@ -101,6 +111,8 @@ dsl('EventGraph', '''
 (event EventTick (DeltaSeconds)
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
   (Variables|Default|SetT (+ T dt))
+  (bind here0 (Transformation|GetActorLocation))
+  (Class|AudioComponent|SetVolumeMultiplier :self Rotor :VolumeMultiplier (* 0.8 (CamVol :P here0 :Far 16000.0)))
   (Transformation|AddLocalRotation :self Hub :DeltaRotation (Math|Rotator|MakeRotator 0.0 0.0 (* 1300.0 dt)))
   (Transformation|AddLocalRotation :self TailHub :DeltaRotation (Math|Rotator|MakeRotator 0.0 (* 2000.0 dt) 0.0))
   (Rendering|Components|Light|SetIntensity :self Beacon :NewIntensity (select (< (Math|Float|%(Float) T 1.0) 0.12) 60000.0 0.0))

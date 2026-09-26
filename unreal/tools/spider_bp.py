@@ -33,6 +33,23 @@ dsl('GroundZ', '''
     (else (return (.z P)))))
 ''')
 
+# volume by distance to the player camera (sounds have no attenuation assets)
+fn('CamVol', [('P', 'Vector'), ('Far', 'float')], [('V', 'float')])
+dsl('CamVol', '''
+(fn CamVol (P Far)
+  (bind cm (Game|GetPlayerCameraManager :PlayerIndex 0))
+  (bind cl (Camera|GetCameraLocation :self cm))
+  (return (Math|Float|Clamp(Float) (- 1.0 (/ (Math|Vector|Distance(Vector) cl P) Far)) 0.0 1.0)))
+''')
+
+fn('Valid', [('A', '/Script/Engine.Actor')], [('Ok', 'bool')])
+dsl('Valid', '''
+(fn Valid (A)
+  (Utilities|IsValid A
+    (:"Is Valid" (return true))
+    (:"Is Not Valid" (return false))))
+''')
+
 fn('Seg', [('Idx', 'int'), ('A', 'Vector'), ('B', 'Vector'), ('R', 'float')])
 dsl('Seg', '''
 (fn Seg (Idx A B R)
@@ -220,6 +237,10 @@ dsl('Gait', '''
       (Utilities|Array|SetArrayElem Foot i (+ (Math|Vector|Lerp(Vector) from tgt e) (Math|Vector|MakeVector 0.0 0.0 (* h lift))))
       (Utilities|Array|SetArrayElem Tuck i h)
       (if (>= s 1.0)
+        (bind fv (CamVol :P tgt :Far (+ 6000.0 (* L 2.0))))
+        (if (> fv 0.03)
+          (Audio|PlaySoundatLocation :Sound "/Game/Game/Sound/S_Step.S_Step" :Location tgt :VolumeMultiplier (* fv (Math|Float|Clamp(Float) (/ L 2500.0) 0.15 0.8))
+             :PitchMultiplier (Math|Float|Clamp(Float) (- 1.7 (/ L 2000.0)) 0.45 1.6)))
         (Utilities|Array|SetArrayElem Swing i false)
         (Utilities|Array|SetArrayElem Tuck i 0.0)
         (Utilities|Array|SetArrayElem Foot i tgt)))
@@ -344,6 +365,8 @@ dsl('Hunt', '''
   (Variables|Default|SetIgnoreT (- IgnoreT DT))
   (Variables|Default|SetDTm DT)
   (if Eating
+    (if (< (Math|Float|%(Float) EatT 0.9) DT)
+      (Audio|PlaySoundatLocation :Sound "/Game/Game/Sound/S_Crunch.S_Crunch" :Location here :VolumeMultiplier (* 0.6 (CamVol :P here :Far 9000.0))))
     (Variables|Default|SetEatT (- EatT DT))
     (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
     (bind at (+ (+ here (* fwd (* L 0.2))) (Math|Vector|MakeVector 0.0 0.0 (* L -0.02))))
@@ -404,7 +427,8 @@ dsl('Seek', '''
       (if (and (< r 1.0) (and (< r BestH) (not (Class|BPHuman|GetBoarded :self h))))
         (Variables|Default|SetVictim h)
         (Variables|Default|SetBestH r))))
-  (if (and (>= Best 999999.0) (< BestH 1.0))
+  (bind vv (Valid :A Victim))
+  (if (and (>= Best 999999.0) (and (< BestH 1.0) vv))
     (Variables|Default|SetHunting true)
     (Variables|Default|SetHasTarget true)
     (bind vp (Transformation|GetActorLocation :self Victim))
@@ -439,6 +463,7 @@ dsl('Seek', '''
 
 dsl('EventGraph', '''
 (event EventBeginPlay
+  (Variables|Default|SetBestH 1000000.0)
   (Variables|Default|SetNoWalk (Actor|GetAllActorswithTag :Tag "NoWalk"))
   (Variables|Default|SetHome (Transformation|GetActorLocation))
   (Variables|Default|SetYaw (.yaw (Transformation|GetActorRotation)))
