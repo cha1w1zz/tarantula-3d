@@ -584,11 +584,12 @@ const KEYS = {};
 addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; const k = e.key.toLowerCase(); KEYS[k] = true;
   if (CTRL.who && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault(); });
 addEventListener('keyup', e => { if (e.target.tagName === 'INPUT') return; KEYS[e.key.toLowerCase()] = false; });
-// บังคับคนเดินเอง (WASD/ลูกศร, Shift = วิ่ง) แทนคนที่กล้อง #tWatch กำลังส่องอยู่: off → ชัยภัทร → ตุ้ย → off; AI ปล่อยมือคนนั้นทันที
-function setControl(w) { CTRL.who = w; if (!w) CTRL.x = CTRL.z = 0; if (w) setWatch(w); }
+// บังคับคนเดินเอง (WASD/ลูกศร, Shift = วิ่ง): off → ชัยภัทร → ตุ้ย → off; AI ปล่อยมือคนนั้นทันที
+// กล้องสลับเป็นมุมมองสายตาคนนั้นไปด้วย (ล็อกอัตโนมัติ) เดินไปทางไหนก็เห็นตรงหน้า ไม่ต้องคอยหมุนกล้องเอง
+function setControl(w) { CTRL.who = w; if (!w) { CTRL.x = CTRL.z = 0; if (eyes) setEyes(false); return; } setEyes(true); }
 $('tControl').onclick = () => { const i = [null, ...PEOPLE_ORDER].indexOf(CTRL.who), w = [null, ...PEOPLE_ORDER][(i + 1) % 3];
   if (w && !humansOut().some(p => p.who === w)) { log(humansOut().length ? `${PEOPLE[w].name}ยังไม่อยู่ในเมืองตอนนี้ รอสักครู่` : 'ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยบังคับ'); return; }
-  setControl(w); log(w ? `🎮 บังคับ${PEOPLE[w].name}เอง: ใช้ WASD/ลูกศรเดิน, Shift วิ่ง (สตามินาลด) — หนีแมงมุมเองได้เลย` : '🎮 บังคับคน: ปิด (คืนให้ AI คุมเหมือนเดิม)'); };
+  setControl(w); log(w ? `🎮 บังคับ${PEOPLE[w].name}เอง: กล้องมองผ่านสายตาเขา ใช้ WASD/ลูกศรเดิน, Shift วิ่ง (สตามินาลด) — หนีแมงมุมเองได้เลย` : '🎮 บังคับคน: ปิด (คืนให้ AI คุมเหมือนเดิม, กล้องกลับเป็นอิสระ)'); };
 $('tEatHum').onclick = () => tryEat(CTRL.who && humansOut().find(p => p.who === CTRL.who));
 $('tDrinkHum').onclick = () => tryDrink(CTRL.who && humansOut().find(p => p.who === CTRL.who));
 $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on', fast); };
@@ -631,7 +632,8 @@ $('tCine').onclick = () => { setCine(!cine); if (cine && tankView) $('tTank').cl
 $('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); if (tankView && view) setView(null); if (tankView && eyes) setEyes(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
   if (tankView && follow) $('tFollow').click(); };
 // first person: look through a person's eyes (the one the camera last went to) (watch only: the orbit controls are off, the game drives him)
-const eyesOf = () => { const h = humansOut(); return h.includes(focusP) ? focusP : h[0]; }, eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
+const eyesOf = () => { if (CTRL.who) { const p = humansOut().find(q => q.who === CTRL.who); if (p) return p; }   // controlling someone: always his eyes, even after a respawn
+  const h = humansOut(); return h.includes(focusP) ? focusP : h[0]; }, eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
 function setEyes(on) { eyes = on; $('tEyes').classList.toggle('on', on);
   if (on) { if (cine) setCine(false); if (view) setView(null); if (tankView) $('tTank').click(); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
   else controls.target.copy(spider ? spider.root.position : controls.target);
