@@ -1,0 +1,181 @@
+# BP_Prey: cricket (Kind 0) / dubia roach (Kind 1). Port of js/prey.js in short: wander in bursts on the garden floor,
+# flee from the spider when it is close (vibration), cricket hops away, tripod-gait legs, held + struggling while eaten.
+# Units cm. Body length Lb = 150 (cricket) / 170 (dubia) x K, K = spider span / 1200 clamped 1..3.5 (game.js p.k).
+target('/Game/Game/BP_Prey')
+comp('Body', '/Script/Engine.StaticMeshComponent', {'StaticMesh': '/Engine/BasicShapes/Sphere.Sphere'})
+comp('Head', '/Script/Engine.StaticMeshComponent', {'StaticMesh': '/Engine/BasicShapes/Sphere.Sphere'})
+comp('Legs', '/Script/Engine.InstancedStaticMeshComponent', {'StaticMesh': '/Engine/BasicShapes/Cylinder.Cylinder'})
+for n, t in [('Kind', 'int'), ('K', 'float'), ('Lb', 'float'), ('H', 'float'), ('Value', 'float'), ('Target', 'Vector'),
+             ('HasTarget', 'bool'), ('Speed', 'float'), ('Yaw', 'float'), ('PauseT', 'float'), ('Phase', 'float'),
+             ('Held', 'bool'), ('HopT', 'float'), ('Flee', 'bool'), ('Age', 'float')]:
+    var(n, t)
+objvar('Spider', '/Game/Spider/BP_Tarantula.BP_Tarantula_C')
+objvar('NoWalk', '/Script/Engine.Actor', True)
+edit('Kind', 'K')
+
+fn('GroundZ', [('P', 'Vector')], [('Z', 'float')])
+dsl('GroundZ', '''
+(fn GroundZ (P)
+  (bind (hit ok) (Collision|LineTraceByChannel
+     :Start (+ P (Math|Vector|MakeVector 0.0 0.0 1500.0))
+     :End (- P (Math|Vector|MakeVector 0.0 0.0 3000.0))
+     :bTraceComplex true :ActorsToIgnore NoWalk))
+  (if ok
+    (bind (blk ovl tm dist loc imp) (Collision|BreakHitResult hit))
+    (return (.z imp))
+    (else (return (.z P)))))
+''')
+
+# one leg segment (local space of the actor)
+fn('Seg', [('Idx', 'int'), ('A', 'Vector'), ('B', 'Vector'), ('R', 'float')])
+dsl('Seg', '''
+(fn Seg (Idx A B R)
+  (bind d (- B A))
+  (Components|InstancedStaticMesh|UpdateInstanceTransform :self Legs :InstanceIndex Idx
+    :NewInstanceTransform (Math|Transform|MakeTransform
+       :Location (* (+ A B) 0.5)
+       :Rotation (Math|Rotator|MakeRotfromZ d)
+       :Scale (Math|Vector|MakeVector (/ R 50.0) (/ R 50.0) (/ (Math|Vector|VectorLength d) 100.0)))
+    :bWorldSpace false :bMarkRenderStateDirty true :bTeleport true))
+''')
+
+fn('Setup')
+dsl('Setup', '''
+(fn Setup ()
+  (Variables|Default|SetK (Math|Float|Clamp(Float) K 1.0 3.5))
+  (Variables|Default|SetLb (* K (select (== Kind 0) 150.0 170.0)))
+  (Variables|Default|SetH (* Lb (select (== Kind 0) 0.2 0.14)))
+  (Variables|Default|SetValue (* (select (== Kind 0) 10.0 18.0) K))
+  (bind s (/ Lb 100.0))
+  (if (== Kind 0)
+    (Transformation|SetRelativeTransform :self Body :NewTransform (Math|Transform|MakeTransform
+       :Location (Math|Vector|MakeVector 0.0 0.0 0.0) :Scale (Math|Vector|MakeVector s (* s 0.3) (* s 0.28))))
+    (Transformation|SetRelativeTransform :self Head :NewTransform (Math|Transform|MakeTransform
+       :Location (Math|Vector|MakeVector (* Lb 0.52) 0.0 (* Lb 0.04)) :Scale (Math|Vector|MakeVector (* s 0.24) (* s 0.24) (* s 0.26))))
+    (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_Cricket.MI_Cricket")
+    (Rendering|Material|SetMaterial :self Head :ElementIndex 0 :Material "/Game/Game/Mat/MI_Cricket.MI_Cricket")
+    (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_CricketLeg.MI_CricketLeg")
+    (else
+      (Transformation|SetRelativeTransform :self Body :NewTransform (Math|Transform|MakeTransform
+         :Location (Math|Vector|MakeVector 0.0 0.0 0.0) :Scale (Math|Vector|MakeVector s (* s 0.66) (* s 0.2))))
+      (Transformation|SetRelativeTransform :self Head :NewTransform (Math|Transform|MakeTransform
+         :Location (Math|Vector|MakeVector (* Lb 0.36) 0.0 (* Lb 0.01)) :Scale (Math|Vector|MakeVector (* s 0.34) (* s 0.5) (* s 0.16))))
+      (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_Dubia.MI_Dubia")
+      (Rendering|Material|SetMaterial :self Head :ElementIndex 0 :Material "/Game/Game/Mat/MI_DubiaEdge.MI_DubiaEdge")
+      (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_DubiaLeg.MI_DubiaLeg")))
+  (Collision|SetCollisionEnabled :self Body :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self Head :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self Legs :NewType "NoCollision")
+  (Components|InstancedStaticMesh|ClearInstances :self Legs)
+  (for k (range 14)
+    (Components|InstancedStaticMesh|AddInstance :self Legs :InstanceTransform (Math|Transform|MakeTransform :Location (Math|Vector|MakeVector 0.0 0.0 0.0)))))
+''')
+
+# 6 legs (femur + tibia) in a tripod gait + 2 antennae; Held = fast kicking
+fn('Pose', [('DT', 'float')])
+dsl('Pose', '''
+(fn Pose (DT)
+  (bind rate (select Held 9.0 (/ Speed (* Lb 0.45))))
+  (Variables|Default|SetPhase (+ Phase (* rate DT)))
+  (bind amp (select Held 1.0 (Math|Float|Clamp(Float) (/ Speed (* Lb 0.4)) 0.0 1.0)))
+  (for i (range 6)
+    (bind side (select (< i 3) 1.0 -1.0))
+    (bind j (% i 3))
+    (bind hx (* Lb (- 0.18 (* 0.16 j))))
+    (bind hip (Math|Vector|MakeVector hx (* side (* Lb 0.1)) (* Lb -0.02)))
+    (bind grp (% (+ j (select (< i 3) 0 1)) 2))
+    (bind ph (+ (* Phase 6.2832) (* grp 3.1416)))
+    (bind sw (* (* (Math|Trig|Sin(Radians) ph) (* Lb 0.12)) amp))
+    (bind lift (* (* (Math|Float|Max(Float) 0.0 (Math|Trig|Cos(Radians) ph)) (* Lb 0.07)) amp))
+    (bind hind (and (== Kind 0) (== j 2)))
+    (bind reach (select hind 0.62 0.46))
+    (bind fx (+ (* Lb (- 0.42 (* 0.42 j))) (select hind (* Lb -0.25) 0.0)))
+    (bind foot (Math|Vector|MakeVector (+ fx sw) (* side (* Lb reach)) (+ (- 0.0 H) lift)))
+    (bind mid (* (+ hip foot) 0.5))
+    (bind knee (+ mid (Math|Vector|MakeVector (select hind (* Lb -0.12) 0.0) (* side (* Lb 0.06)) (* Lb (select hind 0.34 0.16)))))
+    (bind r (* Lb (select hind 0.03 0.022)))
+    (Seg :Idx (* i 2) :A hip :B knee :R r)
+    (Seg :Idx (+ (* i 2) 1) :A knee :B foot :R (* r 0.75)))
+  (bind ant (select (== Kind 0) 0.95 0.35))
+  (bind hd (Math|Vector|MakeVector (* Lb (select (== Kind 0) 0.6 0.46)) 0.0 (* Lb 0.05)))
+  (bind wig (* (Math|Trig|Sin(Radians) (* Phase 2.0)) (* Lb 0.08)))
+  (Seg :Idx 12 :A hd :B (+ hd (Math|Vector|MakeVector (* Lb ant) (+ (* Lb 0.3) wig) (* Lb 0.18))) :R (* Lb 0.008))
+  (Seg :Idx 13 :A hd :B (+ hd (Math|Vector|MakeVector (* Lb ant) (- (* Lb -0.3) wig) (* Lb 0.18))) :R (* Lb 0.008)))
+''')
+
+# garden area of the tank (front-left) and the pond (keep out)
+fn('Inside', [('P', 'Vector')], [('Ok', 'bool')])
+dsl('Inside', '''
+(fn Inside (P)
+  (bind pond (Math|Vector|Distance2D(Vector) P (Math|Vector|MakeVector 300.0 2550.0 0.0)))
+  (return (and (and (and (> (.x P) -5600.0) (< (.x P) 1600.0)) (and (> (.y P) -1000.0) (< (.y P) 3750.0))) (> pond 750.0))))
+''')
+
+fn('Move', [('DT', 'float')])
+dsl('Move', '''
+(fn Move (DT)
+  (bind here (Transformation|GetActorLocation))
+  (Variables|Default|SetPauseT (- PauseT DT))
+  (Variables|Default|SetHopT (- HopT DT))
+  (bind sp (Transformation|GetActorLocation :self Spider))
+  (bind span (Class|BPTarantula|GetSpan :self Spider))
+  (bind dsp (Math|Vector|Distance2D(Vector) here sp))
+  (Variables|Default|SetFlee (< dsp (+ (* Lb 2.5) (* span 0.9))))
+  (if Flee
+    (bind away (Math|Vector|Normalize (Math|Vector|MakeVector (- (.x here) (.x sp)) (- (.y here) (.y sp)) 0.0)))
+    (Variables|Default|SetTarget (+ here (* away (* Lb 4.0))))
+    (Variables|Default|SetHasTarget true)
+    (Variables|Default|SetPauseT 0.0)
+    (if (and (== Kind 0) (<= HopT -0.6))
+      (Variables|Default|SetHopT 0.5))
+    (else
+      (if (or (not HasTarget) (< (Math|Vector|Distance2D(Vector) here Target) (* Lb 0.5)))
+        (bind ang (Math|Random|RandomFloatinRange 0.0 6.2832))
+        (bind r (Math|Random|RandomFloatinRange (* Lb 2.0) (* Lb 9.0)))
+        (bind t (+ here (Math|Vector|MakeVector (* r (Math|Trig|Cos(Radians) ang)) (* r (Math|Trig|Sin(Radians) ang)) 0.0)))
+        (if (Inside :P t)
+          (Variables|Default|SetTarget t)
+          (Variables|Default|SetHasTarget true)
+          (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 0.4 3.5))))))
+  (bind dx (- (.x Target) (.x here)))
+  (bind dy (- (.y Target) (.y here)))
+  (bind dYaw (Math|Rotator|NormalizeAxis (- (Math|Trig|Atan2(Degrees) dy dx) Yaw)))
+  (bind still (and (> PauseT 0.0) (not Flee)))
+  (bind turn (select Flee 540.0 240.0))
+  (Variables|Default|SetYaw (+ Yaw (* (Math|Float|Clamp(Float) dYaw (* turn (- 0.0 DT)) (* turn DT)) (select still 0.0 1.0))))
+  (bind face (Math|Float|Clamp(Float) (/ (- (Math|Trig|Cos(Degrees) dYaw) 0.3) 0.7) 0.0 1.0))
+  (bind top (* Lb (select Flee (select (== Kind 0) 3.2 2.6) 1.1)))
+  (bind hop (> HopT 0.0))
+  (bind want (select still 0.0 (* (* top face) (select hop 2.2 1.0))))
+  (Variables|Default|SetSpeed (Math|Interpolation|FInterpTo Speed want DT 6.0))
+  (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
+  (bind np (+ here (* fwd (* Speed DT))))
+  (bind g0 (GroundZ :P here))
+  (bind g1 (GroundZ :P np))
+  (bind wall (> (- g1 g0) (* Lb 0.45)))
+  (if wall (Variables|Default|SetHasTarget false))
+  (bind np2 (select (and (Inside :P np) (not wall)) np here))
+  (bind gz (select wall g0 g1))
+  (bind arc (select hop (* (Math|Trig|Sin(Radians) (* (/ HopT 0.5) 3.1416)) (* Lb 0.8)) 0.0))
+  (bind nz (+ (+ gz H) arc))
+  (bind z2 (select hop nz (Math|Interpolation|FInterpTo (.z here) nz DT 12.0)))
+  (Transformation|SetActorLocationAndRotation :self self
+     :NewLocation (Math|Vector|MakeVector (.x np2) (.y np2) z2)
+     :NewRotation (Math|Rotator|MakeRotator 0.0 0.0 Yaw)))
+''')
+
+dsl('EventGraph', '''
+(event EventBeginPlay
+  (Variables|Default|SetNoWalk (Actor|GetAllActorswithTag :Tag "NoWalk"))
+  (Variables|Default|SetSpider (Actor|GetActorOfClass :ActorClass "/Game/Spider/BP_Tarantula.BP_Tarantula_C"))
+  (Variables|Default|SetYaw (Math|Random|RandomFloatinRange -180.0 180.0))
+  (Setup))
+(event EventTick (DeltaSeconds)
+  (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
+  (Variables|Default|SetAge (+ Age dt))
+  (if (not Held)
+    (Utilities|IsValid Spider
+      (:"Is Valid" (Move :DT dt))))
+  (Pose :DT dt))
+''')
+compile()

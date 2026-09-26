@@ -1,4 +1,7 @@
 # BP_Tarantula: variables + functions (port of js/spider.js legs/gait + game.js wander/needs). Units: cm (1 game unit = 100 cm)
+target('/Game/Spider/BP_Tarantula')
+for c in ('Body', 'Abdomen'): comp(c, '/Script/Engine.StaticMeshComponent')
+for c in ('Legs', 'Knobs'): comp(c, '/Script/Engine.InstancedStaticMeshComponent')
 for n, t in [('Span', 'float'), ('MaxSpan', 'float'), ('WanderRadius', 'float'), ('TimeScale', 'float'),
              ('Home', 'Vector'), ('Target', 'Vector'), ('Vel', 'Vector'), ('PauseT', 'float'), ('BurstT', 'float'),
              ('Speed', 'float'), ('Yaw', 'float'), ('YawRate', 'float'), ('Phase', 'float'), ('NSwing', 'int'),
@@ -8,6 +11,10 @@ for n, t in [('HipL', 'Vector'), ('RestL', 'Vector'), ('Foot', 'Vector'), ('From
              ('LA', 'float'), ('LB', 'float'), ('LC', 'float'), ('LT', 'float'), ('Off', 'float'), ('LastP', 'float'),
              ('SwT', 'float'), ('SwDur', 'float'), ('Tuck', 'float'), ('Swing', 'bool')]:
     var(n, t, True)
+objvar('NoWalk', '/Script/Engine.Actor', True)
+objvar('Prey', '/Game/Game/BP_Prey.BP_Prey_C')
+for n, t in [('Best', 'float'), ('Hunting', 'bool'), ('Eating', 'bool'), ('EatT', 'float'), ('Meals', 'int')]:
+    var(n, t)   # actors tagged NoWalk (leaves, grass, moss shells): feet go through them
 
 # ground height under P (complex trace, so it follows the real mesh surface)
 fn('GroundZ', [('P', 'Vector')], [('Z', 'float')])
@@ -16,7 +23,7 @@ dsl('GroundZ', '''
   (bind (hit ok) (Collision|LineTraceByChannel
      :Start (+ P (Math|Vector|MakeVector 0.0 0.0 3000.0))
      :End (- P (Math|Vector|MakeVector 0.0 0.0 3000.0))
-     :bTraceComplex true))
+     :bTraceComplex true :ActorsToIgnore NoWalk))
   (if ok
     (bind (blk ovl tm dist loc imp) (Collision|BreakHitResult hit))
     (return (.z imp))
@@ -96,6 +103,14 @@ dsl('Build', '''
   (AddLeg :S -1.0 :Ang 1.1 :Fa 1.08 :Reach 0.44 :A 0.15 :B 0.165 :C 0.11 :T 0.055 :O 0.12)
   (AddLeg :S -1.0 :Ang 1.7 :Fa 1.9 :Reach 0.44 :A 0.145 :B 0.155 :C 0.125 :T 0.055 :O 0.56)
   (AddLeg :S -1.0 :Ang 2.3 :Fa 2.62 :Reach 0.5 :A 0.172 :B 0.182 :C 0.16 :T 0.06 :O 0.0)
+  (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderBody.MI_SpiderBody")
+  (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderAbd.MI_SpiderAbd")
+  (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
+  (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
+  (Collision|SetCollisionEnabled :self Body :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self Abdomen :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self Legs :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self Knobs :NewType "NoCollision")
   (bind L (/ Span 100.0))
   (Transformation|SetRelativeTransform :self Body :NewTransform (Math|Transform|MakeTransform
      :Location (Math|Vector|MakeVector (* 6.0 L) 0.0 (* 1.0 L)) :Scale (Math|Vector|MakeVector (* 0.22 L) (* 0.19 L) (* 0.1 L))))
@@ -215,17 +230,18 @@ dsl('Move', '''
   (bind here (Transformation|GetActorLocation))
   (Variables|Default|SetPauseT (- PauseT DT))
   (Variables|Default|SetBurstT (- BurstT DT))
-  (if (or (not HasTarget) (< (Math|Vector|Distance2D(Vector) here Target) (* L 0.4)))
+  (if (and (not Hunting) (or (not HasTarget) (< (Math|Vector|Distance2D(Vector) here Target) (* L 0.4))))
     (bind ang (Math|Random|RandomFloatinRange 0.0 6.2832))
     (bind r (* WanderRadius (Math|Float|Sqrt (Math|Random|RandomFloat))))
     (Variables|Default|SetTarget (+ Home (Math|Vector|MakeVector (* r (Math|Trig|Cos(Radians) ang)) (* r (Math|Trig|Sin(Radians) ang)) 0.0)))
     (Variables|Default|SetHasTarget true)
     (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 1.0 4.0)))
-  (if (<= BurstT 0.0)
+  (if (and (<= BurstT 0.0) (not Hunting))
     (Variables|Default|SetBurstT (Math|Random|RandomFloatinRange 1.5 4.0))
     (if (< (Math|Random|RandomFloat) 0.55)
       (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 0.5 1.8))))
-  (bind still (or (> PauseT 0.0) (== Stage 2)))
+  (if Hunting (Variables|Default|SetPauseT 0.0))
+  (bind still (or (or (> PauseT 0.0) (== Stage 2)) Eating))
   (bind dx (- (.x Target) (.x here)))
   (bind dy (- (.y Target) (.y here)))
   (bind dYaw (Math|Rotator|NormalizeAxis (- (Math|Trig|Atan2(Degrees) dy dx) Yaw)))
@@ -236,7 +252,8 @@ dsl('Move', '''
   (bind Lg (/ L 100.0))
   (bind top (* (* (* L 0.6) (Math|Float|Power (/ 9.0 (Math|Float|Max(Float) Lg 9.0)) 0.35)) 0.45))
   (bind dist (Math|Float|Sqrt (+ (* dx dx) (* dy dy))))
-  (bind want (select still 0.0 (* (* top face) (Math|Float|Clamp(Float) (/ dist (* L 0.8)) 0.2 1.0))))
+  (bind rush (select (and Hunting (< dist (* L 2.2))) 2.2 1.0))
+  (bind want (select still 0.0 (* (* (* top face) rush) (Math|Float|Clamp(Float) (/ dist (* L 0.8)) 0.2 1.0))))
   (Variables|Default|SetSpeed (Math|Interpolation|FInterpTo Speed want DT 4.0))
   (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
   (Variables|Default|SetVel (* fwd Speed))
@@ -245,7 +262,11 @@ dsl('Move', '''
   (bind gz (GroundZ :P here))
   (bind zc (+ (* 0.5 (/ zs 8.0)) (* 0.5 gz)))
   (bind nz (Math|Interpolation|FInterpTo (.z here) (+ zc (* L 0.09)) DT 6.0))
-  (bind np (+ here (* Vel DT)))
+  (bind np0 (+ here (* Vel DT)))
+  (bind gzn (GroundZ :P (+ np0 (* fwd (* L 0.3)))))
+  (bind wall (> (- gzn gz) (* L 0.35)))
+  (if (and wall (not Hunting)) (Variables|Default|SetHasTarget false))
+  (bind np (select wall here np0))
   (Transformation|SetActorLocationAndRotation :self self
      :NewLocation (Math|Vector|MakeVector (.x np) (.y np) nz)
      :NewRotation (Math|Rotator|MakeRotator 0.0 0.0 Yaw)))
@@ -286,14 +307,74 @@ dsl('Feed', '''
   (return true))
 ''')
 
+# hunting (game.js): feels prey vibration within a radius (moving prey felt further), stalks, rushes, grabs at fang reach,
+# eats for a while (prey held at the fangs, kicking), then Feed(value). Only in the normal stage (premolt/molting/soft refuse food).
+fn('Hunt', [('DT', 'float')])
+dsl('Hunt', '''
+(fn Hunt (DT)
+  (bind L Span)
+  (bind here (Transformation|GetActorLocation))
+  (if Eating
+    (Variables|Default|SetEatT (- EatT DT))
+    (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
+    (Utilities|IsValid Prey
+      (:"Is Valid"
+        (Transformation|SetActorLocationAndRotation :self Prey
+           :NewLocation (+ (+ here (* fwd (* L 0.2))) (Math|Vector|MakeVector 0.0 0.0 (* L -0.02)))
+           :NewRotation (Math|Rotator|MakeRotator 0.0 25.0 (+ Yaw 180.0)))
+        (if (<= EatT 0.0)
+          (bind v (Class|BPPrey|GetValue :self Prey))
+          (bind ate (Feed :Value v))
+          (Actor|DestroyActor :self Prey)
+          (Variables|Default|SetEating false)
+          (Variables|Default|SetMeals (+ Meals 1))
+          (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 2.0 5.0))
+          (Development|PrintString "ate prey")))
+      (:"Is Not Valid"
+        (Variables|Default|SetEating false)))
+    (else (Seek))))
+''')
+
+fn('Seek')
+dsl('Seek', '''
+(fn Seek ()
+  (bind L Span)
+  (bind here (Transformation|GetActorLocation))
+  (Variables|Default|SetHunting false)
+  (if (or (!= Stage 0) (< Hunger 12.0)) (return))
+  (bind all (Actor|GetAllActorsOfClass :ActorClass "/Game/Game/BP_Prey.BP_Prey_C"))
+  (Variables|Default|SetBest 1000000.0)
+  (for a all
+    (bind p (Transformation|GetActorLocation :self a))
+    (bind d (Math|Vector|Distance2D(Vector) here p))
+    (bind moving (> (Class|BPPrey|GetSpeed :self a) 5.0))
+    (bind sense (+ (* L (select moving 3.2 1.4)) (select moving 900.0 300.0)))
+    (if (and (< d sense) (< d Best))
+      (Variables|Default|SetPrey a)
+      (Variables|Default|SetBest d)))
+  (if (< Best 999999.0)
+    (Variables|Default|SetHunting true)
+    (Variables|Default|SetHasTarget true)
+    (bind pp (Transformation|GetActorLocation :self Prey))
+    (Variables|Default|SetTarget pp)
+    (if (< Best (* L 0.42))
+      (Variables|Default|SetEating true)
+      (Variables|Default|SetHunting false)
+      (Variables|Default|SetEatT (Math|Random|RandomFloatinRange 6.0 10.0))
+      (Class|BPPrey|SetHeld :self Prey :Held true)
+      (Development|PrintString "caught prey"))))
+''')
+
 dsl('EventGraph', '''
 (event EventBeginPlay
+  (Variables|Default|SetNoWalk (Actor|GetAllActorswithTag :Tag "NoWalk"))
   (Variables|Default|SetHome (Transformation|GetActorLocation))
   (Variables|Default|SetYaw (.yaw (Transformation|GetActorRotation)))
   (Build))
 (event EventTick (DeltaSeconds)
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
   (Needs :DT dt)
+  (Hunt :DT dt)
   (Move :DT dt)
   (Gait :DT dt))
 ''')
