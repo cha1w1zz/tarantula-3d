@@ -574,11 +574,21 @@ $('tLamp').onclick = e => { S.lamp = !S.lamp; e.currentTarget.classList.toggle('
 $('tVib').onclick = e => { vibOn = !vibOn; e.currentTarget.classList.toggle('on', vibOn); };
 $('tFollow').onclick = e => { follow = !follow; e.currentTarget.classList.toggle('on', follow); if (follow && watchWho) setWatch(null); };
 // camera follows one person (by who, so it picks him up again after a respawn): off → ชัยภัทร → ตุ้ย → off
-let watchWho = null;
-function setWatch(w) { watchWho = w; focusT = 0; const b = $('tWatch'); b.textContent = '👁 ส่องคน: ' + (w ? PEOPLE[w].name : 'ปิด'); b.classList.toggle('on', !!w);
-  if (w) { if (follow) $('tFollow').click(); if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) $('tTank').click(); if (view === 'top') setView(null); } }
-$('tWatch').onclick = () => { const i = [null, ...PEOPLE_ORDER].indexOf(watchWho), w = [null, ...PEOPLE_ORDER][(i + 1) % 3];
-  if (w && !humansOut().length && !ROUND.on) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยส่องตามดู'); return; } setWatch(w); };
+let watchWho = null, eyesWho = null;
+function setWatch(w) { watchWho = w; focusT = 0;
+  if (w) { if (follow) $('tFollow').click(); if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) setTank(false); if (view === 'top') setView(null); } }
+// ส่องคน: ตามหลัง (3rd) หรือสายตาเขา (1st) รวมเป็นปุ่มเดียว วน: ปิด → ชัยภัทร(ตามหลัง) → ชัยภัทร(สายตา) → ตุ้ย(ตามหลัง) → ตุ้ย(สายตา) → ปิด
+const PCAM_ORDER = [null, 'chai3', 'chai1', 'tui3', 'tui1'];
+const currentPCam = () => eyesWho && !CTRL.who ? eyesWho + '1' : !CTRL.who && watchWho ? watchWho + '3' : null;
+function applyPCam(sel) {
+  if (!sel) { setWatch(null); eyesWho = null; if (eyes) setEyes(false); return; }
+  const who = sel.slice(0, -1), first = sel.endsWith('1');
+  if (first) { eyesWho = who; setEyes(true); } else { eyesWho = null; if (eyes) setEyes(false); setWatch(who); }
+}
+$('tPerson').onclick = () => {
+  if (!humansOut().length && !ROUND.on) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยส่องตามดู'); return; }
+  const i = PCAM_ORDER.indexOf(currentPCam()); applyPCam(PCAM_ORDER[(i + 1) % PCAM_ORDER.length]);
+};
 // keyboard WASD/arrow state, read into CTRL.x/z/sprint each tick() while a person is under player control
 const KEYS = {};
 addEventListener('keydown', e => { if (e.target.tagName === 'INPUT') return; const k = e.key.toLowerCase(); KEYS[k] = true;
@@ -627,26 +637,29 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   ['pointermove', 'pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(ev => addEventListener(ev, wake, { passive: true, capture: true })); wake(); }
 // locked front view: the screen acts as the terrarium's front glass
 const CAM0 = { pol: controls.maxPolarAngle };
-function setCine(on) { cine = on; if (on && view) setView(null); if (on && watchWho) setWatch(null); $('tCine').classList.toggle('on', on); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
-$('tCine').onclick = () => { setCine(!cine); if (cine && tankView) $('tTank').click(); };
-$('tTank').onclick = e => { tankView = !tankView; if (tankView && cine) setCine(false); if (tankView && view) setView(null); if (tankView && eyes) setEyes(false); e.currentTarget.classList.toggle('on', tankView); controls.enabled = !tankView;
-  if (tankView && follow) $('tFollow').click(); };
+function setCine(on) { cine = on; if (on && view) setView(null); if (on && watchWho) setWatch(null); if (on && eyes) setEyes(false); controls.maxPolarAngle = on ? Math.PI * .6 : CAM0.pol; resize(); }
+function setTank(on) { tankView = on; if (on) { if (cine) setCine(false); if (view) setView(null); if (eyes) setEyes(false); if (follow) $('tFollow').click(); } controls.enabled = !tankView; }
 // first person: look through a person's eyes (the one the camera last went to) (watch only: the orbit controls are off, the game drives him)
 const eyesOf = () => { if (CTRL.who) { const p = humansOut().find(q => q.who === CTRL.who); if (p) return p; }   // controlling someone: always his eyes, even after a respawn
+  if (eyesWho) { const p = humansOut().find(q => q.who === eyesWho); if (p) return p; }
   const h = humansOut(); return h.includes(focusP) ? focusP : h[0]; }, eyeP = new V3(), eyeL = new V3(), eyeF = new V3();
-function setEyes(on) { eyes = on; $('tEyes').classList.toggle('on', on);
-  if (on) { if (cine) setCine(false); if (view) setView(null); if (tankView) $('tTank').click(); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
+function setEyes(on) { eyes = on;
+  if (on) { if (cine) setCine(false); if (view) setView(null); if (tankView) setTank(false); if (follow) $('tFollow').click(); eyeL.set(0, -1e9, 0); }
   else controls.target.copy(spider ? spider.root.position : controls.target);
   controls.enabled = !on && !tankView; resize(); }
-$('tEyes').onclick = () => { if (!eyes && !eyesOf()) { log('ยังไม่มีคนในเมือง ปล่อยคนก่อน แล้วค่อยมองผ่านสายตาเขา'); return; } setEyes(!eyes); };
 // locked camera angles: front / right / back / left (tilted down 25°) or straight down; zoom still works
 const VIEWS = { front: [0, 'หน้า'], right: [Math.PI / 2, 'ขวา'], back: [Math.PI, 'หลัง'], left: [-Math.PI / 2, 'ซ้าย'], top: [0, 'บน'] }, VIEW_ORDER = [null, 'front', 'right', 'back', 'left', 'top'];
 const viewDir = new V3();
-function setView(v) { view = v; viewT = v ? .6 : 0; const b = $('tView'); b.textContent = '🧭 มุม: ' + (v ? VIEWS[v][1] : 'อิสระ'); b.classList.toggle('on', !!v);
-  if (v) { if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) $('tTank').click(); focusT = 0; }
+function setView(v) { view = v; viewT = v ? .6 : 0;
+  if (v) { if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) setTank(false); focusT = 0; }
   controls.enableRotate = !v; controls.enabled = !eyes && !tankView; }
-$('tView').onclick = () => setView(VIEW_ORDER[(VIEW_ORDER.indexOf(view) + 1) % VIEW_ORDER.length]);
 addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || saverOn) return; const i = '012345'.indexOf(e.key); if (i >= 0) setView(VIEW_ORDER[i]); });
+// มุมกล้อง: รวมมุมล็อก (หน้า/ขวา/หลัง/ซ้าย/บน) + มุมหนัง + ตู้จริง ไว้ปุ่มเดียว วนตามลำดับนี้
+const CAM_ORDER = [null, 'front', 'right', 'back', 'left', 'top', 'cine', 'tank'];
+const CAM_LABEL = { front: 'หน้า', right: 'ขวา', back: 'หลัง', left: 'ซ้าย', top: 'บน', cine: 'มุมหนัง', tank: 'ตู้จริง' };
+const currentCam = () => cine ? 'cine' : tankView ? 'tank' : view;
+function applyCam(m) { if (m === 'cine') return setCine(true); if (m === 'tank') return setTank(true); if (cine) setCine(false); if (tankView) setTank(false); setView(m); }
+$('tCam').onclick = () => applyCam(CAM_ORDER[(CAM_ORDER.indexOf(currentCam()) + 1) % CAM_ORDER.length]);
 function viewCam(dt) {
   const top = view === 'top', t = Math.tan(camera.fov * Math.PI / 360), a = VIEWS[view][0], el = top ? Math.PI / 2 - .01 : 25 * Math.PI / 180;
   const side = top ? 0 : Math.abs(Math.sin(a)), wide = TW * (1 - side) + TD * side, deep = TD * (1 - side) + TW * side;   // tank size seen from that side
@@ -681,6 +694,9 @@ function hud() {
   { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยชัยภัทรกับตุ้ยเข้ามาในเมือง (กดซ้ำ = กล้องไปหาทีละคน)' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
   $('vSpan').textContent = S.span + ' ซม.'; $('vMolt').textContent = 'ลอก ' + S.molts + ' ครั้ง';
   const h = Math.floor(S.hour % 24); $('vTime').textContent = `วัน ${Math.floor(S.hour / 24) + 1} · ${String(h).padStart(2, '0')}:00`; $('vDay').textContent = isNight() ? '🌙 กลางคืน' : '☀️ กลางวัน';
+  { const cm = currentCam(), b = $('tCam'); b.textContent = '🧭 มุมกล้อง: ' + (cm ? CAM_LABEL[cm] : 'อิสระ'); b.classList.toggle('on', !!cm); }
+  { const pc = currentPCam(), b = $('tPerson');
+    b.textContent = '👁 ส่องคน: ' + (pc ? `${PEOPLE[pc.slice(0, -1)].name} (${pc.endsWith('1') ? 'สายตา' : 'ตามหลัง'})` : 'ปิด'); b.classList.toggle('on', !!pc); }
   { const cb = $('tControl'); cb.textContent = '🎮 บังคับคน: ' + (CTRL.who ? PEOPLE[CTRL.who].name : 'ปิด'); cb.classList.toggle('on', !!CTRL.who);
     const p = CTRL.who && humansOut().find(q => q.who === CTRL.who), hh = $('humanHud'); hh.hidden = !p;
     if (p) { const A = p.ai, stMax = .6 + .4 * clamp(Math.min(A.H, A.W) * 2.5, 0, 1);
