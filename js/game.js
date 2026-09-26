@@ -595,11 +595,12 @@ $('tFast').onclick = e => { fast = !fast; e.currentTarget.classList.toggle('on',
   addEventListener('keydown', e => { if ((e.key === 'h' || e.key === 'H') && e.target.tagName !== 'INPUT') ui(d.body.classList.contains('noui')); }); }
 /* ---------- UI: แผงตั้งค่า, สมุดบันทึกแบบพับ, จางเองเมื่อไม่ได้แตะ ---------- */
 { const d = document, B = d.body;
-  const panel = (cls, on) => { B.classList.toggle('setOpen', cls === 'setOpen' && on); B.classList.toggle('logOpen', cls === 'logOpen' && on);   // เปิดได้ทีละแผง
-    $('tSettings').classList.toggle('on', B.classList.contains('setOpen')); $('tLogBtn').classList.toggle('on', B.classList.contains('logOpen'));
+  const panel = (cls, on) => { B.classList.toggle('setOpen', cls === 'setOpen' && on); B.classList.toggle('logOpen', cls === 'logOpen' && on); B.classList.toggle('helpOpen', cls === 'helpOpen' && on);   // เปิดได้ทีละแผง
+    $('tSettings').classList.toggle('on', B.classList.contains('setOpen')); $('tLogBtn').classList.toggle('on', B.classList.contains('logOpen')); $('tHelp').classList.toggle('on', B.classList.contains('helpOpen'));
     if (B.classList.contains('logOpen')) { logUnread = 0; $('logBadge').hidden = true; } };
   $('tSettings').onclick = () => panel('setOpen', !B.classList.contains('setOpen'));
   $('tLogBtn').onclick = () => panel('logOpen', !B.classList.contains('logOpen'));
+  $('tHelp').onclick = () => panel('helpOpen', !B.classList.contains('helpOpen'));
   canvas.addEventListener('pointerdown', () => panel('', false));           // แตะฉาก = ปิดแผง
   addEventListener('keydown', e => { if (e.key === 'Escape') panel('', false); });
   // ไม่ขยับเมาส์/นิ้ว 5 วินาที → UI จางลง (ไม่จางตอนเปิดแผงอยู่)
@@ -675,7 +676,7 @@ function begin(state, fresh) {
   if (previewing) { spider.dispose(); previewing = false; }
   S = state; if (S.led === undefined) S.led = true; if (S.autoRound === undefined) S.autoRound = true; S.rounds = S.rounds || 0; S.best = S.best || 0;   // old saves: new round-6 fields
   $('tAutoRound').classList.toggle('on', S.autoRound);
-  $('start').hidden = true; ['hud', 'log', 'tools'].forEach(id => $(id).hidden = false);
+  $('start').hidden = true; ['hud', 'log', 'help', 'tools'].forEach(id => $(id).hidden = false);
   $('tLamp').classList.toggle('on', S.lamp); $('tLed').classList.toggle('on', S.led);
   spider = new Spider(S.sp, S.span); pickWander();
   if (S.phase === 'molting') { S.phase = 'premolt'; S.phaseT = 29; }

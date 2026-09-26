@@ -63,6 +63,19 @@ body.logOpen .log{transform:none;visibility:visible;transition:transform .25s ea
 .log p{margin:0;color:var(--mute)} .log p b{color:var(--text);font-weight:600}
 .log p.sci{color:var(--blue)}
 .log p.say{color:#f1dcb4} .log p.say i{color:var(--acc);font-style:normal;font-weight:600}
+/* คู่มือเล่น + แพตช์โน้ต = แผงข้างขวาอีกอัน (เปิดได้ทีละแผงเหมือนสมุดบันทึก) */
+.help{position:fixed;right:14px;top:calc(14px + env(safe-area-inset-top,0px));z-index:5;width:min(340px,calc(100% - 28px));border-radius:16px;
+  display:grid;align-content:start;overflow:auto;padding:10px 14px;font-size:13px;gap:6px;max-height:calc(100vh - 28px - env(safe-area-inset-top,0px));
+  transform:translateX(calc(100% + 24px));visibility:hidden;transition:transform .25s ease,visibility 0s .25s,opacity .6s}
+.help[hidden]{display:none}
+body.helpOpen .help{transform:none;visibility:visible;transition:transform .25s ease,opacity .6s}
+.help h2{margin:0;font-size:13px;color:var(--acc);font-weight:600;letter-spacing:.03em}
+.help h3{margin:10px 0 0;font-size:12px;color:var(--text);font-weight:600}
+.help p,.help li{margin:0;color:var(--mute);line-height:1.55}
+.help ul{margin:2px 0 0;padding-left:18px}
+.help .patch{border-top:1px solid var(--edge);margin-top:10px;padding-top:8px}
+.help .patch li{margin-bottom:3px}
+.help .patch b{color:var(--text)}
 .say{position:fixed;left:0;top:0;z-index:3;max-width:min(240px,70vw);padding:7px 12px;border-radius:12px;background:rgba(250,243,228,.95);color:#1d140b;
   font:600 13px/1.45 "Sarabun",sans-serif;pointer-events:none;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .3s;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .say::after{content:"";position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:rgba(250,243,228,.95)}
@@ -77,10 +90,10 @@ body.idle .hud,body.idle .tools{opacity:.14}
   .tools{bottom:calc(10px + env(safe-area-inset-bottom,0px));gap:2px;padding:4px;max-width:calc(100% - 16px)}
   .pill{min-width:52px;padding:5px 6px 4px;font-size:19px} .pill small{font-size:10px}
   .ico{width:36px;height:36px;font-size:16px} .sep{margin:0}
-  .drawer,.log{right:8px;left:8px;width:auto;bottom:calc(74px + env(safe-area-inset-bottom,0px))}
+  .drawer,.log,.help{right:8px;left:8px;width:auto;bottom:calc(74px + env(safe-area-inset-bottom,0px))}
 }
-@media (max-width:600px){ .log{top:50vh;left:0;right:0;border-radius:16px 16px 0 0} }
-body.noui .hud,body.noui .log,body.noui .tools,body.noui .drawer,body.noui .say,body.noui .notice{display:none!important}
+@media (max-width:600px){ .log,.help{top:50vh;left:0;right:0;border-radius:16px 16px 0 0} }
+body.noui .hud,body.noui .log,body.noui .help,body.noui .tools,body.noui .drawer,body.noui .say,body.noui .notice{display:none!important}
 .uiBack{display:none;position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));z-index:4;opacity:.55}
 body.noui .uiBack{display:block}
 body.saver .uiBack{display:none}body.saver{cursor:none}
@@ -112,6 +125,27 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
 <div class="say" id="say" aria-live="polite"></div>
 <div class="notice" id="notice" aria-live="polite"></div>
 <div class="log glass" id="log" hidden><h2>สมุดบันทึกผู้เลี้ยง</h2></div>
+
+<!-- คู่มือเล่น + แพตช์โน้ต: เพิ่มรายการล่าสุดไว้บนสุดทุกครั้งที่แก้เกม -->
+<div class="help glass" id="help" hidden>
+  <h2>📖 คู่มือ & แพตช์โน้ต</h2>
+  <h3>วิธีเล่น</h3>
+  <ul>
+    <li>ลากเมาส์/นิ้ว หมุนกล้อง · ล้อเมาส์/หยิกซูม · แตะแมงมุมดูปฏิกิริยา</li>
+    <li>ปุ่มหลักด้านล่าง: 🦗จิ้งหรีด/🪳ดูเบีย ให้อาหาร · 💧พ่นน้ำ เพิ่มความชื้น · 🎥ตามดู ล็อกกล้องตามแมงมุม</li>
+    <li>ดูแล 4 ค่าบนการ์ดซ้ายบน: 🍽หิว (อย่าปล่อยพุ่งสูง) · 🌡อุณหภูมิ/💧ความชื้น (ให้อยู่ในช่วงพอดี ไม่งั้นลอกคราบยาก) · 🐚พร้อมลอกคราบ (เต็มแล้วแมงมุมจะลอกคราบเอง)</li>
+    <li>หลังลอกคราบ เปลือกยังนิ่ม ห้ามให้เหยื่อมีชีวิตราว 1–2 สัปดาห์ในเกม</li>
+    <li>กด⚙ตั้งค่า: เปิดโหมดไคจู "ปล่อยชัยภัทร + ตุ้ย" ให้แมงมุมโตแล้วไล่ล่าคนในเมืองร้าง 30 วัน จนเฮลิคอปเตอร์มารับ</li>
+    <li>ปุ่ม 1–5 = ล็อกมุมกล้อง (0 = อิสระ) · H = ซ่อน/แสดง UI</li>
+  </ul>
+  <ul class="patch">
+    <li><b>ล่าสุด</b> — เพิ่มคู่มือเล่น + แพตช์โน้ตนี้ในแถบปุ่มหลัก</li>
+    <li>งานภาพ: โทน golden hour ตอนพระอาทิตย์ขึ้น/ตก, dust ring ตอนกัดเหยื่อทุกชนิด, ผิวเงาวาวชั่วคราวหลังลอกคราบ, แถบ HUD กระพริบตอนวิกฤต</li>
+    <li>คนในโหมดไคจูหิว/กระหายน้ำช้าลง (ไม่ต้องวิ่งไปกิน-ดื่มถี่ตอนเร่งเวลา) + เดินเล่นแถวที่ซ่อนบ้างตอนว่าง</li>
+    <li>Round 7: ปรับประสิทธิภาพ (batching, ขาแมงมุม, DOF/เงา/หญ้าถูกลง, ปรับความละเอียดอัตโนมัติ)</li>
+    <li>Round 6: สมุดบันทึกแบบแผงข้าง, ล็อกมุมกล้อง, คนคนที่ 2 (ตุ้ย), เล่นต่ออัตโนมัติไม่รู้จบ, เสียงประกอบ</li>
+  </ul>
+</div>
 
 <!-- แผงตั้งค่า (ปิดไว้ก่อน): ปุ่มรองทั้งหมดอยู่ที่นี่ id เดิมทุกปุ่ม -->
 <div class="drawer glass" id="drawer" role="dialog" aria-label="ตั้งค่า">
@@ -149,6 +183,7 @@ body.saver .uiBack{display:none}body.saver{cursor:none}
   <button class="btn pill" id="tFollow" title="กล้องตามแมงมุม">🎥<small>ตามดู</small></button>
   <span class="sep"></span>
   <button class="btn ico" id="tLogBtn" title="สมุดบันทึก" aria-label="สมุดบันทึก">📓<span class="badge" id="logBadge" hidden>0</span></button>
+  <button class="btn ico" id="tHelp" title="คู่มือเล่น + แพตช์โน้ต" aria-label="คู่มือเล่น">📖</button>
   <button class="btn ico" id="tSettings" title="ตั้งค่า" aria-label="ตั้งค่า">⚙</button>
 </div>
 <button class="btn uiBack" id="uiBack">👁 แสดง UI</button>
