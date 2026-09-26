@@ -15,13 +15,15 @@ def _start(dt):
     unreal.unregister_slate_post_tick_callback(_h[0])
     unreal.SystemLibrary.execute_console_command(None, "ModelContextProtocol.StartServer")
     unreal.log("Tarantula: Unreal MCP server started (http://127.0.0.1:8000/mcp)")
-    glb = os.path.join(os.path.expanduser("~"), "Downloads", "tarantula-scene.glb")
-    if os.path.isfile(glb) and not unreal.EditorAssetLibrary.does_directory_exist("/Game/Tarantula"):
-        proj = os.path.normpath(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()))
-        script = os.path.join(os.path.dirname(proj), "import_tarantula.py")
-        if os.path.isfile(script):
+    proj = os.path.normpath(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir()))
+    script = os.path.join(os.path.dirname(proj), "import_tarantula.py")
+    if os.path.isfile(script) and not unreal.EditorAssetLibrary.does_directory_exist("/Game/Tarantula"):
+        g = {"__file__": script, "__name__": "tarantula_import"}   # load without running (main() only runs as "__main__")
+        exec(open(script, encoding="utf-8").read(), g)
+        glb = g["find_glb"]()
+        if glb:
             unreal.log("Tarantula: importing " + glb)
-            exec(open(script, encoding="utf-8").read(), {"__file__": script, "__name__": "__main__"})
+            g["main"]()
 
 
 _h[0] = unreal.register_slate_post_tick_callback(_start)

@@ -8,9 +8,19 @@ DEST = "/Game/Tarantula"
 NAME = "tarantula-scene.glb"
 
 
+def downloads():
+    # Windows lets the Downloads folder live anywhere (e.g. D:\Edownloads): read the real path from the registry
+    try:
+        import winreg
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        return os.path.expandvars(winreg.QueryValueEx(k, "{374DE290-123F-4565-9164-39C4925E467B}")[0])
+    except Exception:
+        return os.path.join(os.path.expanduser("~"), "Downloads")
+
+
 def find_glb():
     here = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else ""
-    for d in (here, os.path.join(os.path.expanduser("~"), "Downloads")):
+    for d in (here, downloads(), os.path.join(os.path.expanduser("~"), "Downloads")):
         p = os.path.join(d, NAME)
         if d and os.path.isfile(p):
             return p
@@ -93,4 +103,5 @@ def main():
     unreal.log("เสร็จแล้ว: กด G ดูแบบไม่มีเส้นช่วย หรือคลิกขวาที่ Tarantula_Camera → Pilot")
 
 
-main()
+if __name__ == "__main__":
+    main()
