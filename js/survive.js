@@ -12,7 +12,7 @@
    Prey.human() (prey.js) calls humanAI().
    ===================================================================== */
 const DAY_S = 12, ROUND_DAYS = 30;                                // 1 survival day = 12 s real (× fast-forward) → 30 days ≈ 6 min
-const HUM = { dodge: .2, need: .5, walk: 1.4, hurry: 3.2, run: 5, sprint: 9.5, jog: .55, acc: 16, turn: 10, eatDays: 3, drinkDays: 2, sprintS: 5.5, jukeCost: .12, jukeCD: 1.4 };
+const HUM = { dodge: .2, need: .5, walk: 1.4, hurry: 3.2, run: 5, sprint: 9.5, jog: .55, acc: 16, turn: 10, eatDays: 5, drinkDays: 3.5, sprintS: 5.5, jukeCost: .12, jukeCD: 1.4 };
 
 /* ---------- where a person can walk: a 1-unit grid (buildings, rocks, pond, log, tank edge blocked), same format as navGrid ---------- */
 const HNAV = { G: null, stores: [], hides: [], pond: [] };
@@ -177,10 +177,13 @@ function humanAI(p, dt, sp, d) {
     if (A.safeT > 1.2) goHide(p, sp, true, still);
   } else if (A.st === 'hide' || A.st === 'wait') {
     p.panic = Math.max(0, (p.panic || 0) - T * .3);
-    if (A.route.length) { head = steerRoute(p, A); want = HUM.hurry * weak; }
+    if (A.route.length) { head = steerRoute(p, A); want = (A.pacing ? HUM.walk : HUM.hurry) * weak; if (A.pacing && !A.route.length) A.pacing = false; }
     else if (A.st === 'hide' && A.t <= 0) { // time to go? (needs first; mostly by day; at night only when it is urgent)
       const need = A.W < HUM.need || A.H < HUM.need, urgent = low < .15, go = night ? urgent : need || Math.random() < .25 * P.peekK;
-      if (go) { A.st = 'peek'; A.t = rand(.9, 1.6); A.peekFrom = p.pos.clone(); head = rand(0, 6.3); } else A.t = rand(2, 5); }
+      if (go) { A.st = 'peek'; A.t = rand(.9, 1.6); A.peekFrom = p.pos.clone(); head = rand(0, 6.3); }
+      else { A.t = rand(2, 5);   // nothing to do: a short stretch-the-legs stroll near cover, still out of the spider's sight (not urgent, not at night)
+        if (!urgent && !night && Math.random() < .3) { const ang = rand(0, 6.28), r = rand(2, 4), tx = p.pos.x + Math.sin(ang) * r, tz = p.pos.z + Math.cos(ang) * r;
+          if (!preyBlocked(tx, tz, 1) && covered(sp.pos, new V3(tx, 0, tz))) { A.route = humanRoute(p.pos, new V3(tx, 0, tz)); A.pacing = true; } } } }
   } else if (A.st === 'peek') {   // a step out, a look round: the spider in sight or the ground shaking → back into cover
     want = A.t > .9 ? .6 : 0; p.panic = 0;
     const sees = awake && (d < (L * 1.1 + 8) * P.startleK && !covered(sp.pos, p.pos) || (sp.vel.length() > L * .15 && d < (L * 1.3 + 6) * P.startleK));
