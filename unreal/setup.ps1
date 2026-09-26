@@ -43,10 +43,12 @@ Step '4/5 ปลั๊กอิน Unreal MCP ของ Claude (จาก Epic)'
 claude plugin marketplace add anthropics/claude-plugins-official
 claude plugin install unreal-engine-skills-for-claude-code@claude-plugins-official
 if ($LASTEXITCODE -eq 0) { Ok 'ติดตั้งแล้ว' } else { Warn 'ติดตั้งอัตโนมัติไม่ได้ — Claude จะช่วยลงให้ตอนเปิด' }
+# the plugin ships no server entry: register Unreal's MCP server once (user scope)
+if (-not ((claude mcp list 2>$null) -match 'unreal-mcp')) { claude mcp add --transport http -s user unreal-mcp http://127.0.0.1:8000/mcp }
 
 Step '5/5 เปิด Unreal + เกม + Claude'
 Start-Process (Join-Path $Dir 'unreal\TarantulaUE\TarantulaUE.uproject')
 Start-Process (Join-Path $Dir 'index.html')
 Ok 'Unreal กำลังเปิด (ครั้งแรกอาจนาน 5-15 นาที) · ในเกมกด ⚙ → 📦 ส่งออกไป Unreal'
 Set-Location $Dir
-claude 'Read CLAUDE.md and unreal/README.md first. Task: keep porting this game to Unreal Engine. 1) If /mcp has no unreal-mcp, run: claude plugin install unreal-engine-skills-for-claude-code@claude-plugins-official, then tell me to restart claude. 2) Wait for the Unreal editor to finish opening, then test by listing the actors in the level. 3) Continue with the next step of the plan in unreal/README.md. Always answer me in short, simple Thai.'
+claude 'Read CLAUDE.md and unreal/README.md first. Task: keep porting this game to Unreal Engine. 1) If /mcp has no unreal-mcp, run: claude plugin install unreal-engine-skills-for-claude-code@claude-plugins-official and claude mcp add --transport http -s user unreal-mcp http://127.0.0.1:8000/mcp, then tell me to restart claude. 2) Wait for the Unreal editor to finish opening, then test by listing the actors in the level. 3) Continue with the next step of the plan in unreal/README.md. Always answer me in short, simple Thai.'
