@@ -375,6 +375,7 @@ function tick(dt) {
       if (sp.modeT < .2) { w.rear = 1; brake(dt); faceTo(dt, p.pos.x, p.pos.z, tk); }       // rear up, then a short lunge (≈ half a leg span, not time-scaled)
       else { w.rear = .3; faceTo(dt, p.pos.x, p.pos.z, tk); sp.vel.copy(fwd).multiplyScalar(dm > L * .12 && sp.modeT < .45 ? L * 2.4 : 0); }
       if (sp.modeT > .2 && dm < (man ? L * CHASE.biteR + .9 : L * .3)) { setMode('eat'); sp.vel.set(0, 0, 0); p.held = true; p.v = 0; p.burrowed = 0; p.setOpacity(1); log(`${S.name} พุ่งกัดด้วยเขี้ยวแล้วปล่อยพิษ จับได้แล้ว`); say('catch', true);
+        spawnRipple(p.pos, L * .3);                      // a dusty impact ring at the bite, on any prey
         if (p.kind === 'human') { BLOOD.splash(sp.worldOf(new V3(0, -L * .03, L * .2)), 50); humanSay(p, 'caught'); ROUND.grief(p); log(`${S.name} ขย้ำ${p.name}ด้วยเขี้ยว เลือดกระเซ็น!`); } }
       else if (sp.modeT > .55) { sp.vel.multiplyScalar(.2); setMode('hunt'); log('พลาด เหยื่อหลบได้'); say('miss', true); }
       break;
@@ -450,9 +451,9 @@ function finishMolt() {
    RenderPass (ACES tone-mapped, linear, half-float) → BokehPass (macro depth of field) → UnrealBloom →
    grade (split-tone, sRGB encode, contrast, vignette, grain) → FXAA (on sRGB, as it expects) */
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new V2(1, 1) }, uNight: { value: 0 }, uCA: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, uTime: { value: 0 }, uRes: { value: new V2(1, 1) }, uNight: { value: 0 }, uCA: { value: 0 }, uGold: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; uniform float uNight; uniform float uCA; uniform vec2 uRes; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; uniform float uNight; uniform float uCA; uniform float uGold; uniform vec2 uRes; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       // lens: chromatic aberration grows towards the frame edges (centre stays sharp), like a real macro lens
@@ -461,6 +462,7 @@ const GradeShader = {
       float l = dot(col, vec3(.2126,.7152,.0722));
       col = mix(col, col * vec3(.9,.99,1.08), (1.0 - smoothstep(0.0,.18,l)) * (.38 + uNight * .4));   // cool shadows (bluer at night)
       col = mix(col, col * vec3(1.08,1.0,.9), smoothstep(.25,.9,l) * .34);                          // warm highlights
+      col = mix(col, col * vec3(1.16,.94,.74), uGold * .4);                                          // golden hour (dawn/dusk sun): a stronger amber cast
       col = mix(vec3(l), col, 1.06 - uNight * .2);                                                   // gentle saturation, less at night
       col = LinearTosRGB(vec4(max(col, 0.0), 1.0)).rgb;
       col = col * col * (3.0 - 2.0 * col) * .12 + col * .88;                                         // soft S-curve
@@ -652,9 +654,9 @@ function hud() {
   $('hName').textContent = S.name; $('hSp').textContent = `${sp.th} · ${sp.sci}`;
   const ph = { premolt: 'ก่อนลอกคราบ (ไม่กิน)', soft: 'หลังลอกคราบ (เปลือกนิ่ม)', molting: 'กำลังลอกคราบ' }[S.phase];
   const st = $('hState'); st.textContent = ph ? `${STATE_TH[spider.mode] || ''} · ${ph}` : STATE_TH[spider.mode] || spider.mode; st.classList.toggle('warn', !!ph || spider.mode === 'threat');
-  bar('bHunger', S.hunger, S.hunger > 75 ? 'bad' : S.hunger < 40 ? 'ok' : ''); $('vHunger').textContent = Math.round(S.hunger) + '%';
+  bar('bHunger', S.hunger, S.hunger >= 85 ? 'bad crit' : S.hunger > 75 ? 'bad' : S.hunger < 40 ? 'ok' : ''); $('vHunger').textContent = Math.round(S.hunger) + '%';
   bar('bTemp', (S.temp - 15) / 20 * 100, S.temp >= 24 && S.temp <= 28 ? 'ok' : 'bad'); $('vTemp').textContent = S.temp.toFixed(1) + '°C';
-  bar('bHum', S.hum, S.hum >= 65 && S.hum <= 85 ? 'ok' : 'bad'); $('vHum').textContent = Math.round(S.hum) + '%';
+  bar('bHum', S.hum, S.hum < 55 ? 'bad crit' : S.hum >= 65 && S.hum <= 85 ? 'ok' : 'bad'); $('vHum').textContent = Math.round(S.hum) + '%';
   bar('bGrow', S.growth, S.growth >= 100 ? 'bad' : ''); $('vGrow').textContent = Math.round(S.growth) + '%';
   { const b = $('tHuman'), ok = S.span >= HUMAN_SPAN; b.disabled = !ok; b.title = ok ? 'ปล่อยชัยภัทรกับตุ้ยเข้ามาในเมือง (กดซ้ำ = กล้องไปหาทีละคน)' : `แมงมุมต้องขาใหญ่ถึง ${HUMAN_SPAN} ซม. ก่อน`; $('hHuman').textContent = ok ? '' : `ต้องโตถึง ${HUMAN_SPAN} ซม. (ตอนนี้ ${S.span})`; }
   $('vSpan').textContent = S.span + ' ซม.'; $('vMolt').textContent = 'ลอก ' + S.molts + ' ครั้ง';
@@ -742,7 +744,8 @@ function loop() {
   { // sun: rises on the left (east) at 6:00, overhead at noon, sets on the right at 18:00; low sun is warm and dim
     const h = S.hour % 24, a = clamp((h - 6) / 12, 0, 1) * Math.PI, up = Math.sin(a);
     sun.position.set(-Math.cos(a) * 150, 15 + up * 140, 85);
-    sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up); }
+    sun.intensity = day * (.4 + 1.4 * up); sun.color.setRGB(1, .72 + .26 * up, .5 + .42 * up);
+    grade.uniforms.uGold.value = day * (1 - up) * (1 - up); }
   scene.background.copy(BG_NIGHT).lerp(BG_DAY, day); scene.fog.color.copy(scene.background);
   if (typeof CITY !== 'undefined') CITY.update(dt, 1 - day);   // window glow + neon flicker
   if (typeof FX_UPDATE === 'function') { const h = spider && spider.prey;                        // helicopter (searchlight follows a chase) + fire

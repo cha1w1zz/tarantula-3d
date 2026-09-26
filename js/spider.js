@@ -604,5 +604,8 @@ class Spider {
     this.tint.forEach(([mm, base]) => mm.color.copy(base).multiplyScalar(dark * (1 + pale * .5)).lerp(paleC, pale * .35 * (mm.vertexColors ? 0 : 1)));
     this.mats.hair.emissive.setRGB(.012, .011, .009).multiplyScalar(pale); this.mats.legHair.emissive.copy(this.mats.hair.emissive);
     this.mats.fang.color.set(pale > .3 ? 0xd9d2c4 : 0x050403);
+    // fresh cuticle is glossy for a while after a molt, then dulls back to the normal fur look as it hardens
+    this.mats.car.clearcoat = clamp(this.sp.sheen * .4 + pale * .5, 0, 1); this.mats.car.clearcoatRoughness = lerp(.5, .15, pale);
+    this.mats.leg.roughness = lerp(.72, .35, pale);
   }
 }
