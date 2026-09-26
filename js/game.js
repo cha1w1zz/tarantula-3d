@@ -648,23 +648,26 @@ function setEyes(on) { eyes = on;
   else controls.target.copy(spider ? spider.root.position : controls.target);
   controls.enabled = !on && !tankView; resize(); }
 // locked camera angles: front / right / back / left (tilted down 25°) or straight down; zoom still works
-const VIEWS = { front: [0, 'หน้า'], right: [Math.PI / 2, 'ขวา'], back: [Math.PI, 'หลัง'], left: [-Math.PI / 2, 'ซ้าย'], top: [0, 'บน'] }, VIEW_ORDER = [null, 'front', 'right', 'back', 'left', 'top'];
+const VIEWS = { front: [0, 'หน้า'], right: [Math.PI / 2, 'ขวา'], back: [Math.PI, 'หลัง'], left: [-Math.PI / 2, 'ซ้าย'], top: [0, 'บน'], glass: [0, 'ติดกระจก'] }, VIEW_ORDER = [null, 'front', 'right', 'back', 'left', 'top', 'glass'];
 const viewDir = new V3();
 function setView(v) { view = v; viewT = v ? .6 : 0;
   if (v) { if (cine) setCine(false); if (eyes) setEyes(false); if (tankView) setTank(false); focusT = 0; }
   controls.enableRotate = !v; controls.enabled = !eyes && !tankView; }
-addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || saverOn) return; const i = '012345'.indexOf(e.key); if (i >= 0) setView(VIEW_ORDER[i]); });
-// มุมกล้อง: รวมมุมล็อก (หน้า/ขวา/หลัง/ซ้าย/บน) + มุมหนัง + ตู้จริง ไว้ปุ่มเดียว วนตามลำดับนี้
-const CAM_ORDER = [null, 'front', 'right', 'back', 'left', 'top', 'cine', 'tank'];
-const CAM_LABEL = { front: 'หน้า', right: 'ขวา', back: 'หลัง', left: 'ซ้าย', top: 'บน', cine: 'มุมหนัง', tank: 'ตู้จริง' };
+addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || saverOn) return; const i = '0123456'.indexOf(e.key); if (i >= 0) setView(VIEW_ORDER[i]); });
+// มุมกล้อง: รวมมุมล็อก (หน้า/ขวา/หลัง/ซ้าย/บน/ติดกระจก) + มุมหนัง + ตู้จริง ไว้ปุ่มเดียว วนตามลำดับนี้
+const CAM_ORDER = [null, 'front', 'right', 'back', 'left', 'top', 'glass', 'cine', 'tank'];
+const CAM_LABEL = { front: 'หน้า', right: 'ขวา', back: 'หลัง', left: 'ซ้าย', top: 'บน', glass: 'ติดกระจก', cine: 'มุมหนัง', tank: 'ตู้จริง' };
 const currentCam = () => cine ? 'cine' : tankView ? 'tank' : view;
 function applyCam(m) { if (m === 'cine') return setCine(true); if (m === 'tank') return setTank(true); if (cine) setCine(false); if (tankView) setTank(false); setView(m); }
 $('tCam').onclick = () => applyCam(CAM_ORDER[(CAM_ORDER.indexOf(currentCam()) + 1) % CAM_ORDER.length]);
 function viewCam(dt) {
-  const top = view === 'top', t = Math.tan(camera.fov * Math.PI / 360), a = VIEWS[view][0], el = top ? Math.PI / 2 - .01 : 25 * Math.PI / 180;
+  const top = view === 'top', flat = view === 'glass', t = Math.tan(camera.fov * Math.PI / 360), a = VIEWS[view][0], el = top ? Math.PI / 2 - .01 : flat ? 0 : 25 * Math.PI / 180;
   const side = top ? 0 : Math.abs(Math.sin(a)), wide = TW * (1 - side) + TD * side, deep = TD * (1 - side) + TW * side;   // tank size seen from that side
-  const R = top ? Math.max(TW / 2 / (t * camera.aspect), TD / 2 / t) * 1.08 + TH : Math.max(wide / 2 / (t * camera.aspect), TH * .75 / t) * .94 + deep / 2;
-  if (top || !follow || !spider) controls.target.lerp(camPrev.set(0, top ? 0 : TH * .3, 0), clamp(dt * 4, 0, 1));
+  // glass: no tilt, no margin — fill the whole screen with the front glass (background-size:cover, not contain) so the display edge = the tank edge
+  const R = top ? Math.max(TW / 2 / (t * camera.aspect), TD / 2 / t) * 1.08 + TH
+    : flat ? Math.min(wide / 2 / (t * camera.aspect), TH / 2 / t) + deep / 2
+    : Math.max(wide / 2 / (t * camera.aspect), TH * .75 / t) * .94 + deep / 2;
+  if (top || !follow || !spider) controls.target.lerp(camPrev.set(0, top ? 0 : flat ? TH / 2 : TH * .3, 0), clamp(dt * 4, 0, 1));
   viewDir.set(Math.sin(a) * Math.cos(el), Math.sin(el), Math.cos(a) * Math.cos(el));
   const off = camPrev.copy(camera.position).sub(controls.target); let r = off.length() || R; off.divideScalar(r);
   if (viewT > 0) { const k = clamp(dt / viewT, 0, 1); viewT -= dt; off.lerp(viewDir, k).normalize(); r = lerp(r, Math.min(R, controls.maxDistance), k); } else off.copy(viewDir);
