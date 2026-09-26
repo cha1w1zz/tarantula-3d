@@ -11,6 +11,9 @@ lvl = level + '.' + level.rsplit('/', 1)[1] + ':PersistentLevel'
 acts = json.loads(call(S, 'find_actors', {'name': '', 'tag': '', 'collision_channels': []}))
 spider = None
 NOWALK_PARENTS = ('MI_Default_Mask', 'MI_Default_Mask_DS')
+# meshes that came out white (their three.js shaders are not exportable): rocks, pebbles, reeds, pond water
+PAINT = {'World_MeshStandardMaterial_39': 'Rock', 'World_MeshStandardMaterial_21': 'Pebble', 'World_MeshStandardMaterial_27': 'Reed',
+         'World_MeshLambertMaterial_7': 'Water'}
 for a in acts:
     p = a['refPath']
     if 'BP_Tarantula_C' in p: spider = a
@@ -19,6 +22,9 @@ for a in acts:
     if lab.startswith('Test') or lab.startswith('Spider_'):
         print('remove', lab, call(S, 'remove_from_scene', {'actor': a}).strip()); continue
     if not lab.startswith('World_'): continue
+    if lab in PAINT:
+        m = '/Game/Game/Mat/MI_%s.MI_%s' % (PAINT[lab], PAINT[lab])
+        print('paint', lab, call(O, 'set_properties', {'instance': {'refPath': p + '.StaticMeshComponent0'}, 'values': json.dumps({'OverrideMaterials': [m]})}).strip())
     mesh = '/Game/Tarantula/tarantula-scene/StaticMeshes/%s.%s' % (lab, lab)
     sm = json.loads(call(O, 'get_properties', {'instance': {'refPath': mesh}, 'properties': ['StaticMaterials']}))
     mat = sm['StaticMaterials'][0]['materialInterface']['refPath']
@@ -32,6 +38,12 @@ for a in acts:
         tags = call(A, 'get_tags', {'actor': a})
         if 'NoWalk' not in tags: call(A, 'add_tag', {'actor': a, 'tag': 'NoWalk'})
         print('NoWalk', lab)
+# a wooden table under the tank (the template landscape is removed)
+if not any(call(A, 'get_label', {'actor': a}).strip().strip('"') == 'Table' for a in acts if 'StaticMeshActor' in a['refPath']):
+    t = json.loads(call(S, 'add_to_scene_from_asset', {'asset_path': '/Engine/BasicShapes/Cube', 'name': 'Table',
+                                                      'xform': {'location': {'x': 0, 'y': 0, 'z': -260}, 'scale': {'x': 180, 'y': 130, 'z': 1}}}))
+    call(A, 'set_label', {'actor': t, 'label': 'Table'})
+    print('table', call(O, 'set_properties', {'instance': {'refPath': t['refPath'] + '.StaticMeshComponent0'}, 'values': json.dumps({'OverrideMaterials': ['/Game/Game/Mat/MI_Table.MI_Table']})}))
 if not spider:
     spider = json.loads(call(S, 'add_to_scene_from_class', {'actor_type': {'refPath': '/Game/Spider/BP_Tarantula.BP_Tarantula_C'}, 'name': 'Tarantula',
                                                           'xform': {'location': {'x': -2400, 'y': 600, 'z': 300}}}))

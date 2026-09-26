@@ -173,9 +173,9 @@ dsl('EventGraph', '''
 (event EventTick (DeltaSeconds)
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
   (Variables|Default|SetAge (+ Age dt))
+  (Pose :DT dt)
   (if (not Held)
     (Utilities|IsValid Spider
-      (:"Is Valid" (Move :DT dt))))
-  (Pose :DT dt))
+      (:"Is Valid" (Move :DT dt)))))
 ''')
 compile()

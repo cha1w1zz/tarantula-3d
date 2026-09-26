@@ -50,8 +50,12 @@ def fn(name, ins=(), outs=()):
     FNS.append(name)
     if name in HAVE_G: return
     print(call(BT, 'add_function_graph', {'blueprint': BP, 'graph_name': name})[:120])
-    for n, t in ins: call(BT, 'add_function_param', {'graph': G(name), 'param_name': n, 'param_type': t, 'input_param': True})
-    for n, t in outs: call(BT, 'add_function_param', {'graph': G(name), 'param_name': n, 'param_type': t, 'input_param': False})
+    for io, lst in ((True, ins), (False, outs)):
+        for n, t in lst:
+            if t.startswith('/'):   # object reference param: class path
+                call(BT, 'add_object_function_param', {'graph': G(name), 'param_name': n, 'object_class': {'refPath': t}, 'input_param': io})
+            else:
+                call(BT, 'add_function_param', {'graph': G(name), 'param_name': n, 'param_type': t, 'input_param': io})
 
 
 def var(name, t, arr=False):
@@ -85,7 +89,46 @@ def cat(m):   # getter/setter node ids use the variable's category (e.g. Variabl
     return CAT[m]
 
 
+def _sexp(code, i):
+    """parse one s-expression starting at code[i]; returns (node, next index). node = str atom or list"""
+    while code[i].isspace(): i += 1
+    if code[i] == '(':
+        out = []; i += 1
+        while True:
+            while code[i].isspace(): i += 1
+            if code[i] == ')': return out, i + 1
+            n, i = _sexp(code, i); out.append(n)
+    if code[i] == '"':
+        j = i + 1
+        while code[j] != '"': j += 2 if code[j] == chr(92) else 1
+        return code[i:j + 1], j + 1
+    j = i
+    while not code[j].isspace() and code[j] != ')':
+        if code[j] == '(':                      # node ids like Math|Float|Min(Float) / Get(acopy) carry their own (...)
+            if j == i: break
+            j = code.index(')', j)
+        j += 1
+    return code[i:j], j
+
+
+def _emit(n):
+    if isinstance(n, str): return n
+    if n and n[0] in ('and', 'or') and len(n) > 3:          # the DSL's and/or take exactly 2 args: nest the rest
+        return _emit([n[0], n[1], [n[0]] + n[2:]])
+    return '(' + ' '.join(_emit(x) for x in n) + ')'
+
+
+def nest(code):
+    code = re.sub(r';[^\n"]*$', '', code, flags=re.M); out = []; i = 0
+    while True:
+        while i < len(code) and code[i].isspace(): i += 1
+        if i >= len(code): break
+        n, i = _sexp(code, i); out.append(_emit(n))
+    return '\n'.join(out)
+
+
 def xl(code):
+    code = nest(code)
     for m in COMPS: code = re.sub(r'(?<=[\s(])' + m + r'(?=[\s)])', '(Variables|Default|Get' + m + ')', code)
     for m in MEMBERS:
         c = cat(m)
@@ -96,7 +139,7 @@ def xl(code):
     return code
 
 
-def dsl(graph, code): PEND.append((graph, code))
+def dsl(graph, code, keep=False): PEND.append((graph, code, keep))   # keep: don't clear first (graphs with bound events)
 
 
 CLEAR = '''
@@ -121,7 +164,7 @@ def clear(graph):
 
 def flush():
     while PEND:
-        g, c = PEND.pop(0); cl = clear(g)
+        g, c, keep = PEND.pop(0); cl = '' if keep else clear(g)
         r = call(BT, 'write_graph_dsl', {'graph': G(g), 'code': xl(c)}); print(g, ' '.join(cl.split())[:60], '->', r[:3000])
         if 'ERROR' in r: FAILED.append(g)
 

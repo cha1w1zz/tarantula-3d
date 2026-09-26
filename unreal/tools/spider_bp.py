@@ -13,6 +13,9 @@ for n, t in [('HipL', 'Vector'), ('RestL', 'Vector'), ('Foot', 'Vector'), ('From
     var(n, t, True)
 objvar('NoWalk', '/Script/Engine.Actor', True)
 objvar('Prey', '/Game/Game/BP_Prey.BP_Prey_C')
+objvar('Victim', '/Game/Game/BP_Human.BP_Human_C')
+for n, t in [('EatHuman', 'bool'), ('ChaseT', 'float'), ('IgnoreT', 'float'), ('BestH', 'float'), ('DTm', 'float'), ('Blocked', 'bool')]:
+    var(n, t)
 for n, t in [('Best', 'float'), ('Hunting', 'bool'), ('Eating', 'bool'), ('EatT', 'float'), ('Meals', 'int')]:
     var(n, t)   # actors tagged NoWalk (leaves, grass, moss shells): feet go through them
 
@@ -111,6 +114,7 @@ dsl('Build', '''
   (Collision|SetCollisionEnabled :self Abdomen :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Legs :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Knobs :NewType "NoCollision")
+  (Tint)
   (bind L (/ Span 100.0))
   (Transformation|SetRelativeTransform :self Body :NewTransform (Math|Transform|MakeTransform
      :Location (Math|Vector|MakeVector (* 6.0 L) 0.0 (* 1.0 L)) :Scale (Math|Vector|MakeVector (* 0.22 L) (* 0.19 L) (* 0.1 L))))
@@ -232,10 +236,13 @@ dsl('Move', '''
   (Variables|Default|SetBurstT (- BurstT DT))
   (if (and (not Hunting) (or (not HasTarget) (< (Math|Vector|Distance2D(Vector) here Target) (* L 0.4))))
     (bind ang (Math|Random|RandomFloatinRange 0.0 6.2832))
-    (bind r (* WanderRadius (Math|Float|Sqrt (Math|Random|RandomFloat))))
-    (Variables|Default|SetTarget (+ Home (Math|Vector|MakeVector (* r (Math|Trig|Cos(Radians) ang)) (* r (Math|Trig|Sin(Radians) ang)) 0.0)))
+    (bind r (* (Math|Float|Max(Float) WanderRadius (* L 2.5)) (Math|Float|Sqrt (Math|Random|RandomFloat))))
+    (bind c (select (>= L 1200.0) (Math|Vector|MakeVector 0.0 0.0 (.z Home)) Home))
+    (bind t (+ c (Math|Vector|MakeVector (* r (Math|Trig|Cos(Radians) ang)) (* r (Math|Trig|Sin(Radians) ang)) 0.0)))
+    (Variables|Default|SetTarget (Math|Vector|MakeVector (Math|Float|Clamp(Float) (.x t) -5600.0 5600.0) (Math|Float|Clamp(Float) (.y t) -3600.0 3600.0) (.z t)))
     (Variables|Default|SetHasTarget true)
-    (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 1.0 4.0)))
+    (Variables|Default|SetPauseT (select Blocked 0.0 (Math|Random|RandomFloatinRange 1.0 4.0)))
+    (Variables|Default|SetBlocked false))
   (if (and (<= BurstT 0.0) (not Hunting))
     (Variables|Default|SetBurstT (Math|Random|RandomFloatinRange 1.5 4.0))
     (if (< (Math|Random|RandomFloat) 0.55)
@@ -252,7 +259,7 @@ dsl('Move', '''
   (bind Lg (/ L 100.0))
   (bind top (* (* (* L 0.6) (Math|Float|Power (/ 9.0 (Math|Float|Max(Float) Lg 9.0)) 0.35)) 0.45))
   (bind dist (Math|Float|Sqrt (+ (* dx dx) (* dy dy))))
-  (bind rush (select (and Hunting (< dist (* L 2.2))) 2.2 1.0))
+  (bind rush (select (and Hunting (< dist (* L 2.2))) 2.2 (select (and Hunting (> ChaseT 0.0)) 1.6 1.0)))
   (bind want (select still 0.0 (* (* (* top face) rush) (Math|Float|Clamp(Float) (/ dist (* L 0.8)) 0.2 1.0))))
   (Variables|Default|SetSpeed (Math|Interpolation|FInterpTo Speed want DT 4.0))
   (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
@@ -265,11 +272,31 @@ dsl('Move', '''
   (bind np0 (+ here (* Vel DT)))
   (bind gzn (GroundZ :P (+ np0 (* fwd (* L 0.3)))))
   (bind wall (> (- gzn gz) (* L 0.35)))
-  (if (and wall (not Hunting)) (Variables|Default|SetHasTarget false))
+  (if (and wall (not Hunting)) (Variables|Default|SetHasTarget false) (Variables|Default|SetBlocked true))
+  (if (and wall Hunting) (Variables|Default|SetYaw (+ Yaw (* 150.0 DT))))
   (bind np (select wall here np0))
   (Transformation|SetActorLocationAndRotation :self self
      :NewLocation (Math|Vector|MakeVector (.x np) (.y np) nz)
      :NewRotation (Math|Rotator|MakeRotator 0.0 0.0 Yaw)))
+''')
+
+
+# colour by molt stage: premolt = dark abdomen, molting / soft = pale new skin
+fn('Tint')
+dsl('Tint', '''
+(fn Tint ()
+  (if (== Stage 1)
+    (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_Black.MI_Black")
+    (elif (>= Stage 2)
+      (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
+      (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
+      (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
+      (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
+      (else
+        (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderBody.MI_SpiderBody")
+        (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderAbd.MI_SpiderAbd")
+        (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
+        (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")))))
 ''')
 
 # needs (game.js): 1 real s = 0.5 game hour x TimeScale; hunger +1.3/h (not while molting); growth 100 -> premolt 30 h -> molting 6 h -> soft 48 h
@@ -281,20 +308,20 @@ dsl('Needs', '''
   (Variables|Default|SetStageT (+ StageT hrs))
   (if (and (== Stage 0) (>= Growth 100.0))
     (Variables|Default|SetStage 1) (Variables|Default|SetStageT 0.0)
-    (Development|PrintString "premolt: stops eating, abdomen darkens"))
+    (Tint))
   (if (and (== Stage 1) (> StageT 30.0))
     (Variables|Default|SetStage 2) (Variables|Default|SetStageT 0.0)
-    (Development|PrintString "molting: lies still"))
+    (Tint))
   (if (and (== Stage 2) (> StageT 6.0))
     (Variables|Default|SetSpan (Math|Float|Min(Float) MaxSpan (* Span 1.35)))
     (Variables|Default|SetMolts (+ Molts 1))
     (Variables|Default|SetGrowth 0.0)
     (Variables|Default|SetStage 3) (Variables|Default|SetStageT 0.0)
     (Build)
-    (Development|PrintString (Utilities|String|Append "molted, span cm = " (Utilities|String|ToString(Float) Span))))
+    (Tint))
   (if (and (== Stage 3) (> StageT 48.0))
     (Variables|Default|SetStage 0) (Variables|Default|SetStageT 0.0)
-    (Development|PrintString "shell hard again")))
+    (Tint)))
 ''')
 
 # eat: game.js hunger -= value*1.4, growth += value*12/span(game units); refused in premolt/molting/soft
@@ -314,24 +341,39 @@ dsl('Hunt', '''
 (fn Hunt (DT)
   (bind L Span)
   (bind here (Transformation|GetActorLocation))
+  (Variables|Default|SetIgnoreT (- IgnoreT DT))
+  (Variables|Default|SetDTm DT)
   (if Eating
     (Variables|Default|SetEatT (- EatT DT))
     (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
-    (Utilities|IsValid Prey
-      (:"Is Valid"
-        (Transformation|SetActorLocationAndRotation :self Prey
-           :NewLocation (+ (+ here (* fwd (* L 0.2))) (Math|Vector|MakeVector 0.0 0.0 (* L -0.02)))
-           :NewRotation (Math|Rotator|MakeRotator 0.0 25.0 (+ Yaw 180.0)))
-        (if (<= EatT 0.0)
-          (bind v (Class|BPPrey|GetValue :self Prey))
-          (bind ate (Feed :Value v))
-          (Actor|DestroyActor :self Prey)
-          (Variables|Default|SetEating false)
-          (Variables|Default|SetMeals (+ Meals 1))
-          (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 2.0 5.0))
-          (Development|PrintString "ate prey")))
-      (:"Is Not Valid"
-        (Variables|Default|SetEating false)))
+    (bind at (+ (+ here (* fwd (* L 0.2))) (Math|Vector|MakeVector 0.0 0.0 (* L -0.02))))
+    (if EatHuman
+      (Utilities|IsValid Victim
+        (:"Is Valid"
+          (Transformation|SetActorLocationAndRotation :self Victim :NewLocation (- at (Math|Vector|MakeVector 0.0 0.0 90.0))
+             :NewRotation (Math|Rotator|MakeRotator 0.0 70.0 (+ Yaw 180.0)))
+          (if (<= EatT 0.0)
+            (bind ate (Feed :Value 16.0))
+            (Actor|DestroyActor :self Victim)
+            (Variables|Default|SetEating false)
+            (Variables|Default|SetEatHuman false)
+            (Variables|Default|SetMeals (+ Meals 1))
+            (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 4.0 8.0))))
+        (:"Is Not Valid" (Variables|Default|SetEating false)))
+      (else
+        (Utilities|IsValid Prey
+          (:"Is Valid"
+            (Transformation|SetActorLocationAndRotation :self Prey :NewLocation at
+               :NewRotation (Math|Rotator|MakeRotator 0.0 25.0 (+ Yaw 180.0)))
+            (if (<= EatT 0.0)
+              (bind v (Class|BPPrey|GetValue :self Prey))
+              (bind ate2 (Feed :Value v))
+              (Actor|DestroyActor :self Prey)
+              (Variables|Default|SetEating false)
+              (Variables|Default|SetMeals (+ Meals 1))
+              (Variables|Default|SetPauseT (Math|Random|RandomFloatinRange 2.0 5.0))))
+          (:"Is Not Valid"
+            (Variables|Default|SetEating false)))))
     (else (Seek))))
 ''')
 
@@ -352,6 +394,36 @@ dsl('Seek', '''
     (if (and (< d sense) (< d Best))
       (Variables|Default|SetPrey a)
       (Variables|Default|SetBest d)))
+  (if (and (>= Best 999999.0) (and (>= L 1200.0) (and (> Hunger 28.0) (<= IgnoreT 0.0))))
+    (Variables|Default|SetBestH 1000000.0)
+    (for h (Actor|GetAllActorsOfClass :ActorClass "/Game/Game/BP_Human.BP_Human_C")
+      (bind hp (Transformation|GetActorLocation :self h))
+      (bind hs (Class|BPHuman|GetSpeed :self h))
+      (bind vib (select (> hs 600.0) 1.5 (select (> hs 200.0) 1.0 (select (> hs 20.0) 0.6 0.22))))
+      (bind r (/ (Math|Vector|Distance2D(Vector) here hp) (* (+ 2500.0 (* L 1.0)) vib)))
+      (if (and (< r 1.0) (and (< r BestH) (not (Class|BPHuman|GetBoarded :self h))))
+        (Variables|Default|SetVictim h)
+        (Variables|Default|SetBestH r))))
+  (if (and (>= Best 999999.0) (< BestH 1.0))
+    (Variables|Default|SetHunting true)
+    (Variables|Default|SetHasTarget true)
+    (bind vp (Transformation|GetActorLocation :self Victim))
+    (Variables|Default|SetTarget vp)
+    (Variables|Default|SetChaseT (+ ChaseT DTm))
+    (if (> ChaseT 12.0)
+      (Variables|Default|SetHunting false)
+      (Variables|Default|SetChaseT 0.0)
+      (Variables|Default|SetIgnoreT 8.0)
+      (Variables|Default|SetPauseT 3.0))
+    (if (< (Math|Vector|Distance2D(Vector) here vp) (* L 0.4))
+      (Variables|Default|SetEating true)
+      (Variables|Default|SetEatHuman true)
+      (Variables|Default|SetHunting false)
+      (Variables|Default|SetChaseT 0.0)
+      (Variables|Default|SetEatT 10.0)
+      (Class|BPHuman|SetHeld :self Victim :Held true)))
+  (if (>= BestH 1.0) (Variables|Default|SetChaseT 0.0))
+  (Variables|Default|SetBestH 1000000.0)
   (if (< Best 999999.0)
     (Variables|Default|SetHunting true)
     (Variables|Default|SetHasTarget true)
@@ -362,7 +434,7 @@ dsl('Seek', '''
       (Variables|Default|SetHunting false)
       (Variables|Default|SetEatT (Math|Random|RandomFloatinRange 6.0 10.0))
       (Class|BPPrey|SetHeld :self Prey :Held true)
-      (Development|PrintString "caught prey"))))
+      (Variables|Default|SetChaseT 0.0))))
 ''')
 
 dsl('EventGraph', '''
