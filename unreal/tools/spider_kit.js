@@ -1,4 +1,4 @@
-// Export the real spider parts for BP_Tarantula: node spider_kit.js  →  unreal/kit/<species>_<Part>.glb
+// Export the real spider parts for BP_Tarantula: node spider_kit.js  →  unreal/kit/<species>_<Part>.glb (+ webs.glb: EXPORT.webs)
 // Opens index.html in headless Chrome/Edge (DevTools protocol, no npm packages) and calls EXPORT.kit() for every species.
 const fs = require('fs'), path = require('path'), { spawn } = require('child_process'), os = require('os');
 const ROOT = path.resolve(__dirname, '../..'), OUT = path.join(ROOT, 'unreal/kit');
@@ -27,5 +27,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); out[k] = btoa(s); } r(out); }))`);
     for (const k in files) { const f = path.join(OUT, `${sp}_${k}.glb`); fs.writeFileSync(f, Buffer.from(files[k], 'base64')); console.log(f, fs.statSync(f).size); }
   }
+  const wb = await ev(`new Promise(r => EXPORT.webs(buf => { const b = new Uint8Array(buf); let s = '';
+    for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); r(btoa(s)); }))`);
+  fs.writeFileSync(path.join(OUT, 'webs.glb'), Buffer.from(wb, 'base64')); console.log('webs.glb', fs.statSync(path.join(OUT, 'webs.glb')).size);
   ws.close(); br.kill();
 })().catch(e => { console.error(e); br.kill(); process.exit(1); });

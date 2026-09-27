@@ -12,8 +12,11 @@ acts = json.loads(call(S, 'find_actors', {'name': '', 'tag': '', 'collision_chan
 spider = None
 NOWALK_PARENTS = ('MI_Default_Mask', 'MI_Default_Mask_DS')
 # meshes that came out white (their three.js shaders are not exportable): rocks, pebbles, reeds, pond water
-PAINT = {'World_MeshStandardMaterial_39': 'Rock', 'World_MeshStandardMaterial_21': 'Pebble', 'World_MeshStandardMaterial_27': 'Reed',
-         'World_MeshLambertMaterial_7': 'Water'}
+PAINT = {'World_MeshStandardMaterial_39': 'MI_Rock', 'World_MeshStandardMaterial_21': 'MI_Pebble', 'World_MeshStandardMaterial_27': 'MI_Reed',
+         'World_MeshLambertMaterial_7': 'M_Water'}   # M_Water / wind materials come from fx_mats.py (run it first)
+# plant clumps / ferns that sway: their glTF material instance is re-parented from MI_Default_<v> to MI_Wind_<v>
+WIND = ('World_MeshStandardMaterial_8', 'World_MeshStandardMaterial_14', 'World_MeshStandardMaterial_15', 'World_MeshStandardMaterial_16',
+        'World_MeshStandardMaterial_47')
 for a in acts:
     p = a['refPath']
     if 'BP_Tarantula_C' in p: spider = a
@@ -23,12 +26,18 @@ for a in acts:
         print('remove', lab, call(S, 'remove_from_scene', {'actor': a}).strip()); continue
     if not lab.startswith('World_'): continue
     if lab in PAINT:
-        m = '/Game/Game/Mat/MI_%s.MI_%s' % (PAINT[lab], PAINT[lab])
+        m = '/Game/Game/Mat/%s.%s' % (PAINT[lab], PAINT[lab])
         print('paint', lab, call(O, 'set_properties', {'instance': {'refPath': p + '.StaticMeshComponent0'}, 'values': json.dumps({'OverrideMaterials': [m]})}).strip())
     mesh = '/Game/Tarantula/tarantula-scene/StaticMeshes/%s.%s' % (lab, lab)
     sm = json.loads(call(O, 'get_properties', {'instance': {'refPath': mesh}, 'properties': ['StaticMaterials']}))
     mat = sm['StaticMaterials'][0]['materialInterface']['refPath']
     par = json.loads(call(O, 'get_properties', {'instance': {'refPath': mat}, 'properties': ['Parent']})).get('Parent', {}).get('refPath', '')
+    if lab in WIND and '/MI_Default_' in par:   # a fresh copy re-rooted on the wind material (re-parenting a material in use crashed the RHI)
+        v = par.rsplit('MI_Default_', 1)[1].split('.')[0]; w = '/Game/Game/Mat/Wind/MI_W_' + lab
+        call('editor_toolset.toolsets.asset.AssetTools', 'delete', {'path': w})
+        call('editor_toolset.toolsets.asset.AssetTools', 'duplicate', {'path': mat.split('.')[0], 'new_path': w})
+        call(O, 'set_properties', {'instance': {'refPath': w + '.MI_W_' + lab}, 'values': json.dumps({'Parent': '/Game/Game/Mat/MI_Wind_%s.MI_Wind_%s' % (v, v)})})
+        print('wind', lab, call(O, 'set_properties', {'instance': {'refPath': p + '.StaticMeshComponent0'}, 'values': json.dumps({'OverrideMaterials': [w + '.MI_W_' + lab]})}).strip())
     vp = json.loads(call(O, 'get_properties', {'instance': {'refPath': mat}, 'properties': ['VectorParameterValues']})).get('VectorParameterValues') or []
     c = vp[0]['parameterValue'] if vp else {'r': 1, 'g': 1, 'b': 1}
     green = c['g'] > c['r'] * 1.3 and c['g'] > c['b'] * 2 and c['g'] < 0.5          # plant clumps (sedges / strap leaves)

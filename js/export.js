@@ -112,9 +112,31 @@ const EXPORT = (() => {
       new THREE.GLTFExporter().parse(parts[n], buf => { out[n] = buf; next(); }, { binary: true, maxTextureSize: 1024 }); };
     next();
   }
+  // WEBS for Unreal (world space): each thread segment → two crossed ribbons (w wide), the sheet film as triangles. Drawn twice in
+  // webs.js (2 px lines) — duplicates dropped. Returns the .glb via done(buf).
+  function webs(done, w = .006) {
+    const P = [], I = [], key = new Set(), a = new V3(), b = new V3(), d = new V3(), s1 = new V3(), s2 = new V3(), t = new V3();
+    const lp = WEBS.lines.geometry.attributes.position, n = lp.count;
+    for (let i = 0; i + 1 < n; i += 2) {
+      a.fromBufferAttribute(lp, i); b.fromBufferAttribute(lp, i + 1);
+      const k = [a.x, a.y, a.z, b.x, b.y, b.z].map(v => v.toFixed(4)).join(); if (key.has(k)) continue; key.add(k);
+      d.subVectors(b, a); if (d.lengthSq() < 1e-10) continue; d.normalize();
+      t.set(0, 1, 0); if (Math.abs(d.y) > .9) t.set(1, 0, 0);
+      s1.crossVectors(d, t).normalize().multiplyScalar(w / 2); s2.crossVectors(d, s1).normalize().multiplyScalar(w / 2);
+      for (const s of [s1, s2]) { const o = P.length / 3;
+        P.push(a.x - s.x, a.y - s.y, a.z - s.z, a.x + s.x, a.y + s.y, a.z + s.z, b.x + s.x, b.y + s.y, b.z + s.z, b.x - s.x, b.y - s.y, b.z - s.z);
+        I.push(o, o + 1, o + 2, o, o + 2, o + 3); }
+    }
+    const fp = WEBS.film.geometry.attributes.position, F = [];
+    for (let i = 0; i < fp.count; i++) F.push(fp.getX(i), fp.getY(i), fp.getZ(i));
+    const mk = (pos, idx, name) => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); if (idx) g.setIndex(idx);
+      g.computeVertexNormals(); const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: 0xdddddd, side: THREE.DoubleSide })); m.name = name; return m; };
+    const grp = new THREE.Group(); grp.add(mk(P, I, 'Threads')); if (F.length) grp.add(mk(F, null, 'Film'));
+    new THREE.GLTFExporter().parse(grp, done, { binary: true });
+  }
   const b = document.getElementById('tExport');
   if (b) b.onclick = () => { b.disabled = true; b.textContent = '⏳ กำลังส่งออก…';
     setTimeout(() => { try { run(); notice('ส่งออก tarantula-scene.glb แล้ว — ลากเข้า Unreal ได้เลย'); } catch (e) { console.error(e); notice('ส่งออกไม่สำเร็จ: ' + e.message); }
       b.disabled = false; b.textContent = '📦 ส่งออกไป Unreal (.glb)'; }, 50); };
-  return { build, run, kit };
+  return { build, run, kit, webs };
 })();

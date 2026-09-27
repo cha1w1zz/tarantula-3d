@@ -18,9 +18,13 @@ def mpc(path, scalars=(), vectors=()):
     if r.strip() != 'true': print('mpc', path, r[:300])
 
 
-def material(path, nodes, links, outs, props=None):
+def material(path, nodes, links, outs, props=None, base=None):
+    """rebuild path from scratch; base = an existing material to copy first (nodes are then added to its graph)"""
     call(AT, 'delete', {'path': path})
-    m = json.loads(call(MT, 'create_material', {'folder_path': path.rsplit('/', 1)[0], 'asset_name': path.rsplit('/', 1)[1]}))
+    if base:
+        call(AT, 'duplicate', {'path': base, 'new_path': path}); m = ref(path)
+    else:
+        m = json.loads(call(MT, 'create_material', {'folder_path': path.rsplit('/', 1)[0], 'asset_name': path.rsplit('/', 1)[1]}))
     if props:
         r = call(O, 'set_properties', {'instance': m, 'values': json.dumps(props)})
         if r.strip() != 'true': print('props', r[:300])
@@ -28,6 +32,11 @@ def material(path, nodes, links, outs, props=None):
     for i, (k, (cls, p)) in enumerate(nodes.items()):
         e = call(MT, 'add_expression', {'material_or_function': m, 'expression_class': {'refPath': '/Script/Engine.MaterialExpression' + cls}, 'x': -300 * (1 + i % 4), 'y': 150 * i})
         ex[k] = json.loads(e)
+        if p and 'Inputs' in p:   # Custom node: the array may only grow by one unchanged-prefix step at a time
+            p = dict(p); ins = p.pop('Inputs')
+            for n in range(1, len(ins) + 1):
+                r = call(O, 'set_properties', {'instance': ex[k], 'values': json.dumps({'Inputs': ins[:n]})})
+                if r.strip() != 'true': print('inputs', k, r[:300])
         if p:
             r = call(O, 'set_properties', {'instance': ex[k], 'values': json.dumps(p)})
             if r.strip() != 'true': print('node', k, r[:300])
@@ -37,7 +46,7 @@ def material(path, nodes, links, outs, props=None):
     for mp, (a, ao) in outs.items():
         r = call(MT, 'connect_to_output', {'expression': ex[a], 'output_name': ao, 'material_property': mp})
         if 'rror' in r: print('out', mp, r[:300])
-    call(MT, 'layout_expressions', {'material_or_function': m})
+    if not base: call(MT, 'layout_expressions', {'material_or_function': m})
     r = call(MT, 'recompile', {'material_or_function': m})
     if 'rror' in r: print('compile', r[:400])
     call(AT, 'save_assets', {'asset_paths': [path]})
