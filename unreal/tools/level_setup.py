@@ -13,7 +13,8 @@ spider = None
 NOWALK_PARENTS = ('MI_Default_Mask', 'MI_Default_Mask_DS')
 # meshes that came out white (their three.js shaders are not exportable): rocks, pebbles, reeds, pond water
 PAINT = {'World_MeshStandardMaterial_39': 'MI_Rock', 'World_MeshStandardMaterial_21': 'MI_Pebble', 'World_MeshStandardMaterial_27': 'MI_Reed',
-         'World_MeshLambertMaterial_7': 'M_Water'}   # M_Water / wind materials come from fx_mats.py (run it first)
+         'World_MeshLambertMaterial_7': 'M_Water',
+         'World_MeshStandardMaterial_22': 'MI_Concrete', 'World_MeshStandardMaterial_23': 'MI_ConcreteDark'}   # 22/23 = the crushed concrete ruin in the garden   # M_Water / wind materials come from fx_mats.py (run it first)
 # plant clumps / ferns that sway: their glTF material instance is re-parented from MI_Default_<v> to MI_Wind_<v>
 WIND = ('World_MeshStandardMaterial_8', 'World_MeshStandardMaterial_14', 'World_MeshStandardMaterial_15', 'World_MeshStandardMaterial_16',
         'World_MeshStandardMaterial_47')
