@@ -1,14 +1,21 @@
 # BP_Keeper: the player (game.js camera + buttons + tank climate + save). Orbit camera on a spring arm around Focus
-# (RMB drag = turn, wheel = zoom, WASD = pan, F = follow the spider), keys/buttons: 1 cricket, 2 dubia, M mist, T time speed,
-# H help. Clock: 1 real s = 0.5 h x TimeMul (same as BP_Tarantula Needs); sun follows the hour; humidity falls, mist raises it.
+# (RMB drag = turn 360, wheel = zoom 1.2-300 m, WASD / middle-drag = pan anywhere in the tank, F = follow the spider; every move eased),
+# the camera is pulled in front of buildings / the ground (own trace; plants, webs, frame bars and the spider don't block it).
+# Keys/buttons: 1 cricket, 2 dubia, M mist, T time speed, H help.
+# Clock: 1 real s = 0.5 h x TimeMul (same as BP_Tarantula Needs); sun follows the hour and sets at night (moon light instead);
+# humidity falls, mist raises it. Exposure is fixed (level_setup.py PostFX), so night is really dark.
 target('/Game/Game/BP_Keeper', '/Script/Engine.Pawn')
 comp('Arm', '/Script/Engine.SpringArmComponent', {'bDoCollisionTest': False, 'TargetArmLength': 3800.0})
 comp('Cam', '/Script/Engine.CameraComponent', {'FieldOfView': 55.0}, parent='Arm')
+# moonlight: a faint blue directional light (no shadows, not the sky's sun), on only at night
+comp('Moon', '/Script/Engine.DirectionalLightComponent', {'Intensity': 0.0, 'LightColor': {'R': 150, 'G': 175, 'B': 255, 'A': 255}, 'CastShadows': False,
+     'bAtmosphereSunLight': False, 'RelativeRotation': {'Pitch': -52.0, 'Yaw': 205.0, 'Roll': 0.0}})
 for n, t in [('Yaw', 'float'), ('Pitch', 'float'), ('Dist', 'float'), ('DistNow', 'float'), ('Focus', 'Vector'), ('Follow', 'bool'),
              ('Hours', 'float'), ('Day', 'int'), ('Hum', 'float'), ('Temp', 'float'), ('TimeMul', 'float'), ('SaveT', 'float'),
              ('MistT', 'float'), ('Notice', 'string'), ('NoticeT', 'float'), ('LogText', 'string'),
              ('LastMeals', 'int'), ('LastStage', 'int'), ('Found', 'bool'), ('SpawnP', 'Vector'),
-             ('NL', 'string'), ('AutoFed', 'bool'), ('AutoMist', 'bool'), ('Fps', 'float'), ('RoundOn', 'bool'), ('RoundT', 'float'), ('RoundDay', 'int'), ('Deaths', 'int'), ('Rescue', 'bool'), ('R0', 'float'), ('R1', 'float'), ('Rounds', 'int'), ('BestD', 'float'), ('BestP', 'Vector'), ('P7', 'bool'), ('P1', 'bool'), ('P2', 'bool'), ('P3', 'bool'), ('P4', 'bool'), ('P5', 'bool'), ('P6', 'bool'), ('SpName', 'string'), ('IntroT', 'float')]:
+             ('NL', 'string'), ('AutoFed', 'bool'), ('AutoMist', 'bool'), ('Fps', 'float'), ('RoundOn', 'bool'), ('RoundT', 'float'), ('RoundDay', 'int'), ('Deaths', 'int'), ('Rescue', 'bool'), ('R0', 'float'), ('R1', 'float'), ('Rounds', 'int'), ('BestD', 'float'), ('BestP', 'Vector'), ('P7', 'bool'), ('P1', 'bool'), ('P2', 'bool'), ('P3', 'bool'), ('P4', 'bool'), ('P5', 'bool'), ('P6', 'bool'), ('SpName', 'string'), ('IntroT', 'float'),
+             ('YawNow', 'float'), ('PitchNow', 'float'), ('FocusNow', 'Vector'), ('ArmNow', 'float')]:
     var(n, t)
 objvar('Spider', '/Game/Spider/BP_Tarantula.BP_Tarantula_C')
 objvar('HUD', '/Game/Game/WBP_HUD.WBP_HUD_C')
@@ -20,6 +27,7 @@ objvar('Heli1', '/Game/Game/BP_Heli.BP_Heli_C')
 objvar('Heli2', '/Game/Game/BP_Heli.BP_Heli_C')
 var('Spawns', 'Vector', True)
 objvar('Fog', '/Script/Engine.ExponentialHeightFog')
+objvar('NoCam', '/Script/Engine.Actor', True)   # the camera trace goes through these (NoWalk plants/webs, NoCam frame bars, the spider)
 
 # the DSL's (Utilities|IsValid x) is the exec macro: as a value it cuts the flow, so wrap it
 fn('Valid', [('A', '/Script/Engine.Actor')], [('Ok', 'bool')])
@@ -118,18 +126,22 @@ dsl('Controls', '''
   (bind (mx my) (Game|Player|GetInputMouseDelta :self pc))
   (if (Game|Player|IsInputKeyDown :self pc :Key "RightMouseButton")
     (Variables|Default|SetYaw (+ Yaw (* mx 0.3)))
-    (Variables|Default|SetPitch (Math|Float|Clamp(Float) (+ Pitch (* my 0.3)) -85.0 -4.0)))
-  (if (Game|Player|WasInputKeyJustPressed :self pc :Key "MouseScrollUp") (Variables|Default|SetDist (Math|Float|Max(Float) 350.0 (* Dist 0.86))))
+    (Variables|Default|SetPitch (Math|Float|Clamp(Float) (+ Pitch (* my 0.3)) -88.0 20.0)))
+  (if (Game|Player|WasInputKeyJustPressed :self pc :Key "MouseScrollUp") (Variables|Default|SetDist (Math|Float|Max(Float) 120.0 (* Dist 0.86))))
   (if (Game|Player|WasInputKeyJustPressed :self pc :Key "MouseScrollDown") (Variables|Default|SetDist (Math|Float|Min(Float) 30000.0 (* Dist 1.16))))
   (bind fwd (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) Yaw) (Math|Trig|Sin(Degrees) Yaw) 0.0))
   (bind right (Math|Vector|MakeVector (- 0.0 (Math|Trig|Sin(Degrees) Yaw)) (Math|Trig|Cos(Degrees) Yaw) 0.0))
   (bind f (- (select (Game|Player|IsInputKeyDown :self pc :Key "W") 1.0 0.0) (select (Game|Player|IsInputKeyDown :self pc :Key "S") 1.0 0.0)))
   (bind r (- (select (Game|Player|IsInputKeyDown :self pc :Key "D") 1.0 0.0) (select (Game|Player|IsInputKeyDown :self pc :Key "A") 1.0 0.0)))
-  (if (or (!= f 0.0) (!= r 0.0))
+  (bind mmb (Game|Player|IsInputKeyDown :self pc :Key "MiddleMouseButton"))
+  (if (or (or (!= f 0.0) (!= r 0.0)) mmb)
     (Variables|Default|SetFollow false)
-    (bind mv (* (+ (* fwd f) (* right r)) (* (* Dist 0.7) DT)))
+    (bind mv (+ (* (+ (* fwd f) (* right r)) (* (* (Math|Float|Max(Float) Dist 600.0) 0.7) DT))
+                (* (+ (* right (select mmb mx 0.0)) (* fwd (select mmb my 0.0))) (* (Math|Float|Max(Float) Dist 600.0) -0.0016))))
     (bind nf (+ Focus mv))
-    (Variables|Default|SetFocus (Math|Vector|MakeVector (Math|Float|Clamp(Float) (.x nf) -6500.0 6500.0) (Math|Float|Clamp(Float) (.y nf) -4500.0 4500.0) (.z nf))))
+    (bind gz (GroundAt :P nf))
+    (Variables|Default|SetFocus (Math|Vector|MakeVector (Math|Float|Clamp(Float) (.x nf) -6200.0 6200.0) (Math|Float|Clamp(Float) (.y nf) -4200.0 4200.0)
+                                   (Math|Interpolation|FInterpTo (.z nf) (+ gz 120.0) DT 5.0))))
   (if (Game|Player|WasInputKeyJustPressed :self pc :Key "P") (StartRound))
   (if (Game|Player|WasInputKeyJustPressed :self pc :Key "One") (SpawnPrey :Kind 0))
   (if (Game|Player|WasInputKeyJustPressed :self pc :Key "Two") (SpawnPrey :Kind 1))
@@ -139,6 +151,15 @@ dsl('Controls', '''
   (if (Game|Player|WasInputKeyJustPressed :self pc :Key "H") (ToggleHelp)))
 ''')
 
+fn('GroundAt', [('P', 'Vector')], [('Z', 'float')])
+dsl('GroundAt', '''
+(fn GroundAt (P)
+  (bind (hit ok) (Collision|LineTraceByChannel :Start (Math|Vector|MakeVector (.x P) (.y P) 7000.0) :End (Math|Vector|MakeVector (.x P) (.y P) -2000.0)
+     :bTraceComplex true :ActorsToIgnore NoCam))
+  (bind (blk ovl tm dist loc imp) (Collision|BreakHitResult hit))
+  (return (select ok (.z imp) 0.0)))
+''')
+
 fn('Camera', [('DT', 'float')])
 dsl('Camera', '''
 (fn Camera (DT)
@@ -146,9 +167,18 @@ dsl('Camera', '''
     (bind sp (Transformation|GetActorLocation :self Spider))
     (Variables|Default|SetFocus (Math|Interpolation|VInterpTo Focus sp DT 3.0)))
   (Variables|Default|SetDistNow (Math|Interpolation|FInterpTo DistNow Dist DT 6.0))
-  (Transformation|SetActorLocation :self self :NewLocation Focus)
-  (Transformation|SetWorldRotation :self Arm :NewRotation (Math|Rotator|MakeRotator 0.0 Pitch Yaw))
-  (Class|SpringArmComponent|SetTargetArmLength :self Arm :TargetArmLength DistNow))
+  (Variables|Default|SetFocusNow (Math|Interpolation|VInterpTo FocusNow Focus DT 10.0))
+  (Variables|Default|SetYawNow (+ YawNow (* (Math|Rotator|NormalizeAxis (- Yaw YawNow)) (Math|Float|Clamp(Float) (* DT 12.0) 0.0 1.0))))
+  (Variables|Default|SetPitchNow (Math|Interpolation|FInterpTo PitchNow Pitch DT 12.0))
+  (bind cp (Math|Trig|Cos(Degrees) PitchNow))
+  (bind dir (Math|Vector|MakeVector (* cp (Math|Trig|Cos(Degrees) YawNow)) (* cp (Math|Trig|Sin(Degrees) YawNow)) (Math|Trig|Sin(Degrees) PitchNow)))
+  (bind (hit ok) (Collision|LineTraceByChannel :Start FocusNow :End (- FocusNow (* dir (+ DistNow 40.0))) :bTraceComplex true :ActorsToIgnore NoCam))
+  (bind (blk ovl tm dist loc imp) (Collision|BreakHitResult hit))
+  (bind len (select ok (Math|Float|Clamp(Float) (- dist 40.0) 30.0 DistNow) DistNow))
+  (Variables|Default|SetArmNow (select (< len ArmNow) len (Math|Interpolation|FInterpTo ArmNow len DT 4.0)))
+  (Transformation|SetActorLocation :self self :NewLocation FocusNow)
+  (Transformation|SetWorldRotation :self Arm :NewRotation (Math|Rotator|MakeRotator 0.0 PitchNow YawNow))
+  (Class|SpringArmComponent|SetTargetArmLength :self Arm :TargetArmLength ArmNow))
 ''')
 
 # clock, sun, humidity, temperature, spider time scale, mist fog
@@ -165,12 +195,16 @@ dsl('Clock', '''
   (Variables|Default|SetHum (Math|Float|Max(Float) 25.0 (- Hum (* hrs 0.6))))
   (bind s (Math|Trig|Sin(Radians) (* (/ (- Hours 6.0) 12.0) 3.1416)))
   (Variables|Default|SetTemp (+ 25.5 (* 3.0 s)))
-  (Transformation|SetActorRotation :self Sun :NewRotation (Math|Rotator|MakeRotator 0.0 (- 0.0 (Math|Float|Max(Float) 10.0 (* 62.0 s))) (+ 30.0 (* Hours 4.0))) :bTeleportPhysics false)
+  (Transformation|SetActorRotation :self Sun :NewRotation (Math|Rotator|MakeRotator 0.0 (- 0.0 (Math|Float|Clamp(Float) (* 62.0 s) -25.0 62.0)) (+ 30.0 (* Hours 4.0))) :bTeleportPhysics false)
   (bind lc (Actor|GetComponentbyClass :self Sun :ComponentClass "/Script/Engine.LightComponent"))
-  (Rendering|Components|Light|SetIntensity :self lc :NewIntensity (Math|Float|Lerp 1.6 6.0 (Math|Float|Clamp(Float) (* s 2.5) 0.0 1.0)))
+  (Rendering|Components|Light|SetIntensity :self lc :NewIntensity (* 6.0 (Math|Float|Clamp(Float) (+ (* s 3.0) 0.15) 0.0 1.0)))
+  (bind night (Math|Float|Clamp(Float) (+ (* s -3.0) 0.5) 0.0 1.0))
+  (Class|BPHeli|SetNight :self Heli1 :Night night)
+  (Class|BPHeli|SetNight :self Heli2 :Night night)
+  (Rendering|Components|Light|SetIntensity :self Moon :NewIntensity (* 0.9 (Math|Float|Clamp(Float) (+ (* s -3.0) 0.3) 0.0 1.0)))
   (Variables|Default|SetMistT (Math|Float|Max(Float) 0.0 (- MistT DT)))
   (bind fc (Actor|GetComponentbyClass :self Fog :ComponentClass "/Script/Engine.ExponentialHeightFogComponent"))
-  (Rendering|Components|ExponentialHeightFog|SetFogDensity :self fc :Value (+ 0.02 (* MistT 0.012))))
+  (Rendering|Components|ExponentialHeightFog|SetFogDensity :self fc :Value (+ 0.008 (* MistT 0.012))))
 ''')
 
 
@@ -407,6 +441,9 @@ dsl('Intro', '''
   (Variables|Default|SetDistNow (Math|Float|Lerp 17000.0 d1 e))
   (Variables|Default|SetPitch (Math|Float|Lerp -62.0 -16.0 e))
   (Variables|Default|SetYaw (Math|Float|Lerp -150.0 -70.0 e))
+  (Variables|Default|SetYawNow Yaw)
+  (Variables|Default|SetPitchNow Pitch)
+  (Variables|Default|SetFocusNow Focus)
   (Widget|SetRenderOpacity :self (Class|WBPHUD|GetIntroBox :self HUD)
      :InOpacity (* (Math|Float|Clamp(Float) (/ (- IntroT 2.0) 1.5) 0.0 1.0) (Math|Float|Clamp(Float) (/ (- 10.0 IntroT) 1.0) 0.0 1.0)))
   (if (> IntroT 10.0) (EndIntro)))
@@ -479,6 +516,13 @@ dsl('EventGraph', '''
   (Variables|Default|SetDist 15000.0)
   (Variables|Default|SetDistNow 15000.0)
   (Variables|Default|SetFocus (Math|Vector|MakeVector -600.0 600.0 300.0))
+  (Variables|Default|SetFocusNow Focus)
+  (Variables|Default|SetYawNow Yaw)
+  (Variables|Default|SetPitchNow Pitch)
+  (Variables|Default|SetArmNow 15000.0)
+  (Variables|Default|SetNoCam (Actor|GetAllActorswithTag :Tag "NoWalk"))
+  (for nc (Actor|GetAllActorswithTag :Tag "NoCam") (Utilities|Array|Add NoCam nc))
+  (Utilities|Array|Add NoCam Spider)
   (Variables|Default|SetTimeMul 1.0)
   (Variables|Default|SetHum 75.0)
   (Variables|Default|SetHours 18.0)
@@ -510,7 +554,7 @@ dsl('EventGraph', '''
         (Variables|Default|SetSaveT 0.0)
         (SaveNow)))))
 ''')
-edit('Dist', 'Follow', 'Pitch', 'Yaw', 'Focus')   # settable from MCP while playing (close-up screenshots)
+edit('Dist', 'Follow', 'Pitch', 'Yaw', 'Focus', 'Hours', 'TimeMul', 'IntroT')   # settable from MCP while playing (screenshots, day/night tests)
 compile()
 SP = json.load(open('spots.json', encoding='utf-8'))
 print('spawns', call('editor_toolset.toolsets.object.ObjectTools', 'set_properties', {'instance': {'refPath': '/Game/Game/BP_Keeper.Default__BP_Keeper_C'}, 'values': json.dumps({'Spawns': [{'x': p[0], 'y': p[1], 'z': p[2]} for p in SP['hides']]})}))

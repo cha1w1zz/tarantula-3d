@@ -1,5 +1,5 @@
 # tiny Material graph builder over MCP: material('/Game/X/M_Name', nodes, links, outs, props)
-# nodes {id: ('VertexColor', {props})}, links [(from, out_pin, to, in_pin)], outs {'MP_BaseColor': (id, out_pin)}; the asset is rebuilt from scratch
+# nodes {id: ('VertexColor', {props}) | ('@', 'ExistingExpressionName')}, links [(from, out_pin, to, in_pin)], outs {'MP_BaseColor': (id, out_pin)}; the asset is rebuilt from scratch
 import json
 from ue import call
 MT = 'editor_toolset.toolsets.material.MaterialTools'; O = 'editor_toolset.toolsets.object.ObjectTools'; AT = 'editor_toolset.toolsets.asset.AssetTools'
@@ -30,6 +30,8 @@ def material(path, nodes, links, outs, props=None, base=None):
         if r.strip() != 'true': print('props', r[:300])
     ex = {}
     for i, (k, (cls, p)) in enumerate(nodes.items()):
+        if cls == '@':   # an expression already in the copied base graph (p = its name, e.g. MaterialExpressionMaterialFunctionCall_2)
+            ex[k] = {'refPath': m['refPath'] + ':' + p}; continue
         e = call(MT, 'add_expression', {'material_or_function': m, 'expression_class': {'refPath': '/Script/Engine.MaterialExpression' + cls}, 'x': -300 * (1 + i % 4), 'y': 150 * i})
         ex[k] = json.loads(e)
         if p and 'Inputs' in p:   # Custom node: the array may only grow by one unchanged-prefix step at a time

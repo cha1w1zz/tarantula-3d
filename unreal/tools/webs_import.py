@@ -12,7 +12,7 @@ call(AT, 'delete', {'path': '/Game/Game/Webs/SM_Webs'})
 print(call(SM, 'import_file', {'folder_path': '/Game/Game/Webs', 'asset_name': 'SM_Webs', 'source_file': os.path.abspath(fbx).replace(os.sep, '/'),
                                'import_materials': False, 'combine_meshes': True})[:120])
 mesh = {'refPath': '/Game/Game/Webs/SM_Webs.SM_Webs'}
-for slot, name, g in (('M0', 'MI_WebThread', 0.45), ('M1', 'MI_WebFilm', 0.06)):
+for slot, name, g in (('M0', 'MI_WebThread', 0.2), ('M1', 'MI_WebFilm', 0.05)):
     ref = {'refPath': '/Game/Game/Webs/%s.%s' % (name, name)}
     if call(O, 'get_class', {'instance': ref}).startswith('ERROR'):
         call(MT, 'create', {'folder_path': '/Game/Game/Webs', 'asset_name': name, 'parent': {'refPath': '/Game/Game/Mat/M_Web.M_Web'}})
@@ -20,9 +20,14 @@ for slot, name, g in (('M0', 'MI_WebThread', 0.45), ('M1', 'MI_WebFilm', 0.06)):
     call(MT, 'set_scalar_parameter', {'instance': ref, 'name': 'Glow', 'value': g})
     print(slot, call(SM, 'set_material', {'mesh': mesh, 'slot_name': slot, 'material': ref}).strip())
 call(SM, 'remove_collisions', {'mesh': mesh})
-if not json.loads(call(S, 'find_actors', {'name': 'Webs', 'tag': '', 'collision_channels': []})):
+found = json.loads(call(S, 'find_actors', {'name': 'Webs', 'tag': '', 'collision_channels': []}))
+if not found:
     a = json.loads(call(S, 'add_to_scene_from_asset', {'asset_path': '/Game/Game/Webs/SM_Webs', 'name': 'Webs', 'xform': {'location': {'x': 0, 'y': 0, 'z': 0}}}))
     call(A, 'set_label', {'actor': a, 'label': 'Webs'})
     call(A, 'add_tag', {'actor': a, 'tag': 'NoWalk'})
     print('placed', a)
+else: a = found[0]
+# the re-import above leaves an existing actor pointing at nothing: re-assign; silk never blocks traces or casts shadows
+print('actor', call(O, 'set_properties', {'instance': {'refPath': a['refPath'] + '.StaticMeshComponent0'}, 'values': json.dumps(
+    {'StaticMesh': '/Game/Game/Webs/SM_Webs.SM_Webs', 'BodyInstance': {'collisionProfileName': 'NoCollision', 'collisionEnabled': 'NoCollision'}, 'CastShadow': False})}))
 call(AT, 'save_assets', {'asset_paths': []})

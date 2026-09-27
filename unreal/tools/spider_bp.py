@@ -18,7 +18,8 @@ objvar('NoWalk', '/Script/Engine.Actor', True)
 objvar('Prey', '/Game/Game/BP_Prey.BP_Prey_C')
 objvar('Victim', '/Game/Game/BP_Human.BP_Human_C')
 objvar('Exus', '/Game/Spider/BP_Exuvia.BP_Exuvia_C', True)   # cast skins on the ground (≤ 2)
-for n, t in [('EatHuman', 'bool'), ('ChaseT', 'float'), ('IgnoreT', 'float'), ('BestH', 'float'), ('DTm', 'float'), ('Blocked', 'bool')]:
+for n, t in [('EatHuman', 'bool'), ('ChaseT', 'float'), ('IgnoreT', 'float'), ('BestH', 'float'), ('DTm', 'float'), ('Blocked', 'bool'),
+             ('EscT', 'float'), ('EscYaw', 'float'), ('EscScore', 'float')]:
     var(n, t)
 for n, t in [('Best', 'float'), ('Hunting', 'bool'), ('Eating', 'bool'), ('EatT', 'float'), ('Meals', 'int')]:
     var(n, t)   # actors tagged NoWalk (leaves, grass, moss shells): feet go through them
@@ -312,7 +313,9 @@ dsl('Move', '''
   (bind still (or (or (> PauseT 0.0) (== Stage 2)) Eating))
   (bind dx (- (.x Target) (.x here)))
   (bind dy (- (.y Target) (.y here)))
-  (bind dYaw (Math|Rotator|NormalizeAxis (- (Math|Trig|Atan2(Degrees) dy dx) Yaw)))
+  (Variables|Default|SetEscT (- EscT DT))
+  (bind tYaw (Math|Trig|Atan2(Degrees) dy dx))
+  (bind dYaw (Math|Rotator|NormalizeAxis (- (select (> EscT 0.0) EscYaw tYaw) Yaw)))
   (bind wantRate (select still 0.0 (Math|Float|Clamp(Float) (* dYaw 3.5) -160.0 160.0)))
   (Variables|Default|SetYawRate (Math|Float|Lerp YawRate wantRate (Math|Float|Clamp(Float) (* DT 5.0) 0.0 1.0)))
   (Variables|Default|SetYaw (+ Yaw (* YawRate DT)))
@@ -334,7 +337,18 @@ dsl('Move', '''
   (bind gzn (GroundZ :P (+ np0 (* fwd (* L 0.3)))))
   (bind wall (> (- gzn gz) (* L 0.35)))
   (if (and wall (not Hunting)) (Variables|Default|SetHasTarget false) (Variables|Default|SetBlocked true))
-  (if (and wall Hunting) (Variables|Default|SetYaw (+ Yaw (* 150.0 DT))))
+  ; blocked: probe 11 headings once, turn to the open one nearest the target and hold it 1.8 s
+  ; (re-rolling the target every blocked frame left the yaw rate at ~0: the spider stood at a wall for minutes)
+  (if (and wall (<= EscT 0.0))
+    (Variables|Default|SetEscScore -99999.0)
+    (for i (range 11)
+      (bind a (+ Yaw (* (+ i 1) 30.0)))
+      (bind d (Math|Vector|MakeVector (Math|Trig|Cos(Degrees) a) (Math|Trig|Sin(Degrees) a) 0.0))
+      (bind g (GroundZ :P (+ here (* d (* L 0.6)))))
+      (bind sc (+ (select (<= (- g gz) (* L 0.35)) 1000.0 0.0)
+                  (+ (Math|Trig|Cos(Degrees) (Math|Rotator|NormalizeAxis (- a tYaw))) (Math|Random|RandomFloatinRange 0.0 0.6))))
+      (if (> sc EscScore) (Variables|Default|SetEscScore sc) (Variables|Default|SetEscYaw a)))
+    (Variables|Default|SetEscT 1.8))
   (bind np (select wall here np0))
   (Transformation|SetActorLocationAndRotation :self self
      :NewLocation (Math|Vector|MakeVector (.x np) (.y np) nz)
