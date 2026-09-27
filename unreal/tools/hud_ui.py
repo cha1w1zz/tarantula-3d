@@ -58,13 +58,13 @@ def canvas(name, anchor, align, left, top, w=0, h=0, auto=True):
 
 add('Root', 'CanvasPanel')
 # stats card
-add('StatsBox', 'Border', 'Root'); props('StatsBox', BrushColor=GLASS, Padding={'left': 14, 'top': 10, 'right': 14, 'bottom': 12})
+add('StatsBox', 'Border', 'Root', var=True); props('StatsBox', BrushColor=GLASS, Padding={'left': 14, 'top': 10, 'right': 14, 'bottom': 12})
 canvas('StatsBox', (0, 0), (0, 0), 16, 16)
 add('StatsCol', 'VerticalBox', 'StatsBox')
-text('TxtTitle', 'StatsCol', 'บึ้งไทย 3D', 20, True, (1, 0.85, 0.55, 1))
+text('TxtTitle', 'StatsCol', 'บึ้งไทย 3D', 20, True, (1, 0.85, 0.55, 1), var=True)
 text('TxtStats', 'StatsCol', '...', 15, var=True)
 # log (right)
-add('LogBox', 'Border', 'Root'); props('LogBox', BrushColor=GLASS, Padding={'left': 12, 'top': 8, 'right': 12, 'bottom': 10})
+add('LogBox', 'Border', 'Root', var=True); props('LogBox', BrushColor=GLASS, Padding={'left': 12, 'top': 8, 'right': 12, 'bottom': 10})
 canvas('LogBox', (1, 0), (1, 0), -16, 16)
 text('TxtLog', 'LogBox', 'บันทึก', 13, var=True); props('TxtLog', AutoWrapText=True, WrapTextAt=330)
 # notice (top centre)
@@ -85,8 +85,35 @@ text('TxtHelp', 'HelpBox', '\n'.join([
     'แมงมุมรับรู้เหยื่อจากแรงสั่น ไม่ใช่สายตา — เหยื่อที่วิ่งจะถูกจับได้ไกลกว่า',
     'กินพอ → โตเต็ม → งดอาหาร (ก่อนลอกคราบ) → ลอกคราบ → ตัวนิ่ม ห้ามให้อาหาร → ใหญ่ขึ้น ×1.35',
 ]), 15)
+# intro (js/intro.js, as a 10 s camera fly-in): title fades in over the town, skip button top-right; BP_Keeper.Intro drives it
+add('IntroBox', 'VerticalBox', 'Root', var=True)
+canvas('IntroBox', (0.5, 0.2), (0.5, 0.5), 0, 0)
+text('TxtIntroTitle', 'IntroBox', 'บึ้งไทย 3D', 72, True, (0.95, 0.72, 0.3, 1))
+text('TxtIntroSub', 'IntroBox', 'เมืองร้างในตู้กระจก · บึ้งตัวหนึ่งกำลังออกจากโพรงไม้', 20, False, (0.95, 0.92, 0.85, 1))
+add('BtnSkip', 'Button', 'Root', var=True); props('BtnSkip', BackgroundColor={'r': 0.12, 'g': 0.13, 'b': 0.15, 'a': 0.85})
+canvas('BtnSkip', (1, 0), (1, 0), -16, 16)
+text('LBtnSkip', 'BtnSkip', 'ข้าม »', 16, True)
+# start card (index.html name/species card): pick a species, name it, start. BP_Keeper hides it on เริ่มเล่น
+add('StartBox', 'Border', 'Root', var=True); props('StartBox', BrushColor={'r': 0.02, 'g': 0.025, 'b': 0.03, 'a': 0.9},
+                                                     Padding={'left': 28, 'top': 20, 'right': 28, 'bottom': 22})
+canvas('StartBox', (0.5, 0.5), (0.5, 0.5), 0, 0)
+add('StartCol', 'VerticalBox', 'StartBox')
+text('TxtStartTitle', 'StartCol', 'บึ้งไทย 3D', 30, True, (1, 0.85, 0.55, 1))
+text('TxtStartSub', 'StartCol', 'เลี้ยงบึ้งไทยในตู้เมืองร้าง — เลือกสายพันธุ์แล้วตั้งชื่อ', 16)
+add('SpRow', 'HorizontalBox', 'StartCol'); slot('SpRow', Padding={'left': 0, 'top': 12, 'right': 0, 'bottom': 8})
+for i, (th, sci) in enumerate([('บึ้งดำ', 'Melopoeus minax'), ('บึ้งน้ำตาล', 'Chilobrachys huahini'), ('บึ้งน้ำเงิน', 'Melopoeus lividus')]):
+    b_ = 'BtnSp%d' % i
+    add(b_, 'Button', 'SpRow', var=True); props(b_, BackgroundColor={'r': 0.14, 'g': 0.15, 'b': 0.18, 'a': 0.95})
+    slot(b_, Padding={'left': 4, 'top': 0, 'right': 4, 'bottom': 0})
+    text('L' + b_, b_, th + chr(10) + sci, 15, True)
+text('TxtPick', 'StartCol', 'เลือก: บึ้งน้ำเงิน', 15, False, (1, 0.9, 0.5, 1), var=True)
+add('NameBox', 'EditableTextBox', 'StartCol', var=True)
+props('NameBox', HintText='ตั้งชื่อแมงมุม (เช่น น้องบึ้ง)', WidgetStyle={'textStyle': {'font': font(18)}, 'foregroundColor': {'specifiedColor': {'r': 0.03, 'g': 0.03, 'b': 0.04, 'a': 1}, 'colorUseRule': 'UseColor_Specified'}, 'focusedForegroundColor': {'specifiedColor': {'r': 0.03, 'g': 0.03, 'b': 0.04, 'a': 1}, 'colorUseRule': 'UseColor_Specified'}})
+slot('NameBox', Padding={'left': 0, 'top': 10, 'right': 0, 'bottom': 10})
+add('BtnStart', 'Button', 'StartCol', var=True); props('BtnStart', BackgroundColor={'r': 0.55, 'g': 0.4, 'b': 0.12, 'a': 1})
+text('LBtnStart', 'BtnStart', 'เริ่มเล่น', 20, True, var=True)
 # bottom bar
-add('Bar', 'HorizontalBox', 'Root')
+add('Bar', 'HorizontalBox', 'Root', var=True)
 canvas('Bar', (0.5, 1), (0.5, 1), 0, -18)
 for b, label in [('BtnCricket', 'จิ้งหรีด [1]'), ('BtnDubia', 'ดูเบีย [2]'), ('BtnMist', 'พ่นน้ำ [M]'), ('BtnFollow', 'ติดตาม [F]'),
                  ('BtnSpeed', 'เร่งเวลา [T]'), ('BtnHuman', 'ปล่อยคน [P]'), ('BtnHelp', 'วิธีเล่น [H]')]:

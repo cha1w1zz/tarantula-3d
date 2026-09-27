@@ -14,6 +14,9 @@ for s in ('L', 'R'):
     comp('Leg' + s, '/Script/Engine.StaticMeshComponent', {'StaticMesh': M + 'Cylinder.Cylinder'}, parent='Hip' + s)
     comp('Sh' + s, '/Script/Engine.SceneComponent')
     comp('Arm' + s, '/Script/Engine.StaticMeshComponent', {'StaticMesh': M + 'Cylinder.Cylinder'}, parent='Sh' + s)
+# speech bubble over the head (WBP_Bubble, bubble_ui.py): screen space, shown 4 s by Talk
+comp('Bubble', '/Script/UMG.WidgetComponent', {'WidgetClass': '/Game/Game/WBP_Bubble.WBP_Bubble_C', 'Space': 'Screen', 'bDrawAtDesiredSize': True,
+     'Pivot': {'x': 0.5, 'y': 1.0}, 'RelativeLocation': {'x': 0, 'y': 0, 'z': 235}, 'bVisible': False})
 for n, t in [('Who', 'int'), ('Hs', 'float'), ('State', 'int'), ('StateT', 'float'), ('Target', 'Vector'), ('Speed', 'float'),
              ('Yaw', 'float'), ('Phase', 'float'), ('Stamina', 'float'), ('Food', 'float'), ('Water', 'float'), ('Held', 'bool'),
              ('Boarded', 'bool'), ('TripFood', 'bool'), ('LastP', 'Vector'), ('StuckT', 'float'), ('Best', 'float'), ('BestP', 'Vector'),
@@ -131,12 +134,22 @@ dsl('Pick', '''
   (return BestP))
 ''')
 
+fn('ShowBubble', [('Msg', 'string')])
+dsl('ShowBubble', '''
+(fn ShowBubble (Msg)
+  (Rendering|SetVisibility :self Bubble :bNewVisibility true)
+  (Utilities|Casting|CastToWBP_Bubble :Object (UserInterface|GetWidget :self Bubble)
+    (:then (Widget|SetText(Text) :self (Class|WBPBubble|GetTxt :self (Utilities|Casting|CastToWBP_Bubble :Object (UserInterface|GetWidget :self Bubble))) :InText (Utilities|Text|ToText(String) Msg)))
+    (:CastFailed)))
+''')
+
 fn('Talk', [('Msg', 'string')])
 dsl('Talk', '''
 (fn Talk (Msg)
   (bind kv (Valid :A Keeper))
   (if (and (<= SayT 0.0) kv)
     (Class|BPKeeper|Log :self Keeper :Msg (Utilities|String|Append (Utilities|String|Append Name ": ") Msg))
+    (ShowBubble :Msg Msg)
     (Variables|Default|SetSayT 6.0)))
 ''')
 
@@ -239,6 +252,7 @@ dsl('EventGraph', '''
   (Setup))
 (event EventTick (DeltaSeconds)
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.05))
+  (Rendering|SetVisibility :self Bubble :bNewVisibility (> SayT 2.0))
   (if (and (not Held) (not Boarded))
     (Utilities|IsValid Spider
       (:"Is Valid"

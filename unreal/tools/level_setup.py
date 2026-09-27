@@ -58,6 +58,6 @@ if not spider:
     spider = json.loads(call(S, 'add_to_scene_from_class', {'actor_type': {'refPath': '/Game/Spider/BP_Tarantula.BP_Tarantula_C'}, 'name': 'Tarantula',
                                                           'xform': {'location': {'x': -2400, 'y': 600, 'z': 300}}}))
 call(A, 'set_actor_transform', {'actor': spider, 'xform': {'location': {'x': -2400, 'y': 600, 'z': 300}, 'rotation': {'pitch': 0, 'yaw': -15, 'roll': 0}}})
-print('spider', call(O, 'set_properties', {'instance': spider, 'values': json.dumps({'bIsSpatiallyLoaded': False, 'Span': 500.0, 'MaxSpan': 3800.0, 'WanderRadius': 2000.0, 'TimeScale': 1.0})}))
+print('spider', call(O, 'set_properties', {'instance': spider, 'values': json.dumps({'bIsSpatiallyLoaded': False, 'Span': 500.0, 'MaxSpan': 3800.0, 'WanderRadius': 2000.0, 'TimeScale': 1.0, 'Species': 2})}))
 print('gamemode', call(O, 'set_properties', {'instance': {'refPath': lvl + '.WorldSettings'}, 'values': json.dumps({'DefaultGameMode': '/Game/Game/BP_TarantulaGame.BP_TarantulaGame_C'})}))
 print('save', call('editor_toolset.toolsets.asset.AssetTools', 'save_assets', {'asset_paths': []}))

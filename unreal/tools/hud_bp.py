@@ -5,7 +5,10 @@ U = 'UMGToolSet.UMGToolSet'
 BTN = [('BtnCricket', '(Class|BPKeeper|SpawnPrey :self Keeper :Kind 0)'), ('BtnDubia', '(Class|BPKeeper|SpawnPrey :self Keeper :Kind 1)'),
        ('BtnMist', '(Class|BPKeeper|Mist :self Keeper)'), ('BtnFollow', '(Class|BPKeeper|ToggleFollow :self Keeper)'),
        ('BtnSpeed', '(Class|BPKeeper|CycleSpeed :self Keeper)'), ('BtnHelp', '(Class|BPKeeper|ToggleHelp :self Keeper)'),
-       ('BtnHuman', '(Class|BPKeeper|StartRound :self Keeper)')]
+       ('BtnHuman', '(Class|BPKeeper|StartRound :self Keeper)'),
+       ('BtnSp0', '(Class|BPKeeper|PickSpecies :self Keeper :K 0)'), ('BtnSp1', '(Class|BPKeeper|PickSpecies :self Keeper :K 1)'),
+       ('BtnSp2', '(Class|BPKeeper|PickSpecies :self Keeper :K 2)'), ('BtnStart', '(Class|BPKeeper|StartGame :self Keeper)'),
+       ('BtnSkip', '(Class|BPKeeper|EndIntro :self Keeper)')]
 code = ''
 for b, act in BTN:
     code += '(event OnClicked(%s)\n  %s)\n' % (b, act)

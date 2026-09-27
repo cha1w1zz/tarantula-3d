@@ -9,7 +9,7 @@ for name, two in (('M_SpiderVC', False), ('M_SpiderVC2', True)):
         'tint': ('VectorParameter', {'ParameterName': 'Tint', 'DefaultValue': {'R': 1, 'G': 1, 'B': 1, 'A': 1}}),
         'col': ('Multiply', None),
         'pale': ('ScalarParameter', {'ParameterName': 'Pale', 'DefaultValue': 0.0}),
-        'palec': ('VectorParameter', {'ParameterName': 'PaleCol', 'DefaultValue': {'R': 0.3, 'G': 0.22, 'B': 0.15, 'A': 1}}),
+        'palec': ('VectorParameter', {'ParameterName': 'PaleCol', 'DefaultValue': {'R': 0.13, 'G': 0.095, 'B': 0.06, 'A': 1}}),
         'mix': ('LinearInterpolate', None),
         'dark': ('ScalarParameter', {'ParameterName': 'Dark', 'DefaultValue': 0.0}),
         'isabd': ('ScalarParameter', {'ParameterName': 'IsAbd', 'DefaultValue': 0.0}),

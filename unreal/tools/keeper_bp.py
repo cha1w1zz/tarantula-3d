@@ -8,7 +8,7 @@ for n, t in [('Yaw', 'float'), ('Pitch', 'float'), ('Dist', 'float'), ('DistNow'
              ('Hours', 'float'), ('Day', 'int'), ('Hum', 'float'), ('Temp', 'float'), ('TimeMul', 'float'), ('SaveT', 'float'),
              ('MistT', 'float'), ('Notice', 'string'), ('NoticeT', 'float'), ('LogText', 'string'),
              ('LastMeals', 'int'), ('LastStage', 'int'), ('Found', 'bool'), ('SpawnP', 'Vector'),
-             ('NL', 'string'), ('AutoFed', 'bool'), ('AutoMist', 'bool'), ('Fps', 'float'), ('RoundOn', 'bool'), ('RoundT', 'float'), ('RoundDay', 'int'), ('Deaths', 'int'), ('Rescue', 'bool'), ('R0', 'float'), ('R1', 'float'), ('Rounds', 'int'), ('BestD', 'float'), ('BestP', 'Vector'), ('P7', 'bool'), ('P1', 'bool'), ('P2', 'bool'), ('P3', 'bool'), ('P4', 'bool'), ('P5', 'bool'), ('P6', 'bool')]:
+             ('NL', 'string'), ('AutoFed', 'bool'), ('AutoMist', 'bool'), ('Fps', 'float'), ('RoundOn', 'bool'), ('RoundT', 'float'), ('RoundDay', 'int'), ('Deaths', 'int'), ('Rescue', 'bool'), ('R0', 'float'), ('R1', 'float'), ('Rounds', 'int'), ('BestD', 'float'), ('BestP', 'Vector'), ('P7', 'bool'), ('P1', 'bool'), ('P2', 'bool'), ('P3', 'bool'), ('P4', 'bool'), ('P5', 'bool'), ('P6', 'bool'), ('SpName', 'string'), ('IntroT', 'float')]:
     var(n, t)
 objvar('Spider', '/Game/Spider/BP_Tarantula.BP_Tarantula_C')
 objvar('HUD', '/Game/Game/WBP_HUD.WBP_HUD_C')
@@ -334,9 +334,82 @@ dsl('UpdateHUD', '''
   (bind r (select RoundOn (Utilities|String|Append (Utilities|String|Append (Utilities|String|Append NL "เอาชีวิตรอด วันที่ ") (Utilities|String|ToString(Integer) RoundDay))
              (Utilities|String|Append "/30 · ถูกกิน " (Utilities|String|Append (Utilities|String|ToString(Integer) Deaths) " ครั้ง"))) ""))
   (Widget|SetText(Text) :self (Class|WBPHUD|GetTxtStats :self HUD) :InText (Utilities|Text|ToText(String) (Utilities|String|Append (Utilities|String|Append (Utilities|String|Append a b) (Utilities|String|Append (Utilities|String|Append c d) e)) r)))
+  (Widget|SetText(Text) :self (Class|WBPHUD|GetTxtTitle :self HUD) :InText (Utilities|Text|ToText(String) (select (== (Utilities|String|Len SpName) 0) "บึ้งไทย 3D" (Utilities|String|Append "บึ้งไทย 3D · " SpName))))
   (Widget|SetText(Text) :self (Class|WBPHUD|GetTxtLog :self HUD) :InText (Utilities|Text|ToText(String) (Utilities|String|Append (Utilities|String|Append "บันทึก" NL) LogText)))
   (Variables|Default|SetNoticeT (- NoticeT DT))
   (Widget|SetText(Text) :self (Class|WBPHUD|GetTxtNotice :self HUD) :InText (Utilities|Text|ToText(String) (select (> NoticeT 0.0) Notice ""))))
+''')
+
+# start card: species (0 minax / 1 huahini / 2 lividus, spider.js SPECIES) + name, like index.html's name/species card
+fn('SpeciesName', [('K', 'int')], [('N', 'string')])
+dsl('SpeciesName', '''
+(fn SpeciesName (K)
+  (return (select (== K 0) "บึ้งดำ (Melopoeus minax)" (select (== K 1) "บึ้งน้ำตาล (Chilobrachys huahini)" "บึ้งน้ำเงิน (Melopoeus lividus)"))))
+''')
+
+fn('PickSpecies', [('K', 'int')])
+dsl('PickSpecies', '''
+(fn PickSpecies (K)
+  (Class|BPTarantula|UseSpecies :self Spider :K K)
+  (Widget|SetText(Text) :self (Class|WBPHUD|GetTxtPick :self HUD) :InText (Utilities|Text|ToText(String) (Utilities|String|Append "เลือก: " (SpeciesName :K K)))))
+''')
+
+fn('StartGame')
+dsl('StartGame', '''
+(fn StartGame ()
+  (bind t (Utilities|String|ToString(Text) (Widget|GetText(TextBox) :self (Class|WBPHUD|GetNameBox :self HUD))))
+  (Variables|Default|SetSpName (select (== (Utilities|String|Len t) 0) "บึ้ง" t))
+  (Widget|SetVisibility :self (Class|WBPHUD|GetStartBox :self HUD) :InVisibility "Collapsed")
+  (Log :Msg (Utilities|String|Append (Utilities|String|Append "เริ่มเลี้ยง " SpName) (Utilities|String|Append " · " (SpeciesName :K (Class|BPTarantula|GetSpecies :self Spider)))))
+  (SaveNow))
+''')
+
+# intro (js/intro.js idea as a camera move): 10 s from high over the whole town down to the spider, title fades in, then the start card
+fn('ShowUI', [('On', 'bool')])
+dsl('ShowUI', '''
+(fn ShowUI (On)
+  (if On
+    (Widget|SetVisibility :self (Class|WBPHUD|GetStatsBox :self HUD) :InVisibility "Visible")
+    (Widget|SetVisibility :self (Class|WBPHUD|GetLogBox :self HUD) :InVisibility "Visible")
+    (Widget|SetVisibility :self (Class|WBPHUD|GetBar :self HUD) :InVisibility "Visible")
+    (Widget|SetVisibility :self (Class|WBPHUD|GetStartBox :self HUD) :InVisibility "Visible")
+    (Widget|SetVisibility :self (Class|WBPHUD|GetIntroBox :self HUD) :InVisibility "Collapsed")
+    (Widget|SetVisibility :self (Class|WBPHUD|GetBtnSkip :self HUD) :InVisibility "Collapsed")
+    (else
+      (Widget|SetVisibility :self (Class|WBPHUD|GetStatsBox :self HUD) :InVisibility "Collapsed")
+      (Widget|SetVisibility :self (Class|WBPHUD|GetLogBox :self HUD) :InVisibility "Collapsed")
+      (Widget|SetVisibility :self (Class|WBPHUD|GetBar :self HUD) :InVisibility "Collapsed")
+      (Widget|SetVisibility :self (Class|WBPHUD|GetStartBox :self HUD) :InVisibility "Collapsed")
+      (Widget|SetVisibility :self (Class|WBPHUD|GetIntroBox :self HUD) :InVisibility "HitTestInvisible")
+      (Widget|SetVisibility :self (Class|WBPHUD|GetBtnSkip :self HUD) :InVisibility "Visible"))))
+''')
+
+fn('EndIntro')
+dsl('EndIntro', '''
+(fn EndIntro ()
+  (Variables|Default|SetIntroT -1.0)
+  (ShowUI :On true)
+  (Variables|Default|SetFollow true)
+  (Variables|Default|SetDist (Math|Float|Max(Float) 1000.0 (* (Class|BPTarantula|GetSpan :self Spider) 2.5))))
+''')
+
+fn('Intro', [('DT', 'float')])
+dsl('Intro', '''
+(fn Intro (DT)
+  (Variables|Default|SetIntroT (+ IntroT DT))
+  (bind u (Math|Float|Clamp(Float) (/ IntroT 9.0) 0.0 1.0))
+  (bind e (* (* u u) (- 3.0 (* 2.0 u))))
+  (bind sp (Transformation|GetActorLocation :self Spider))
+  (bind d1 (Math|Float|Max(Float) 1000.0 (* (Class|BPTarantula|GetSpan :self Spider) 2.5)))
+  (Variables|Default|SetFollow false)
+  (Variables|Default|SetFocus (Math|Vector|MakeVector (Math|Float|Lerp 0.0 (.x sp) e) (Math|Float|Lerp 0.0 (.y sp) e) (Math|Float|Lerp 600.0 (.z sp) e)))
+  (Variables|Default|SetDist (Math|Float|Lerp 17000.0 d1 e))
+  (Variables|Default|SetDistNow (Math|Float|Lerp 17000.0 d1 e))
+  (Variables|Default|SetPitch (Math|Float|Lerp -62.0 -16.0 e))
+  (Variables|Default|SetYaw (Math|Float|Lerp -150.0 -70.0 e))
+  (Widget|SetRenderOpacity :self (Class|WBPHUD|GetIntroBox :self HUD)
+     :InOpacity (* (Math|Float|Clamp(Float) (/ (- IntroT 2.0) 1.5) 0.0 1.0) (Math|Float|Clamp(Float) (/ (- 10.0 IntroT) 1.0) 0.0 1.0)))
+  (if (> IntroT 10.0) (EndIntro)))
 ''')
 
 fn('SaveNow')
@@ -355,6 +428,8 @@ dsl('SaveNow', '''
       (Class|SGTarantula|SetHum :self s :Hum Hum)
       (Class|SGTarantula|SetHours :self s :Hours Hours)
       (Class|SGTarantula|SetDay :self s :Day Day)
+      (Class|SGTarantula|SetSpecies :self s :Species (Class|BPTarantula|GetSpecies :self Spider))
+      (Class|SGTarantula|SetSpName :self s :SpName SpName)
       (SaveGame|SaveGametoSlot :SaveGameObject s :SlotName "tarantula3d" :UserIndex 0))
     (:CastFailed)))
 ''')
@@ -378,7 +453,12 @@ dsl('LoadNow', '''
         (Variables|Default|SetDay (Class|SGTarantula|GetDay :self s))
         (Variables|Default|SetLastMeals (Class|SGTarantula|GetMeals :self s))
         (Variables|Default|SetLastStage (Class|SGTarantula|GetStage :self s))
+        (Class|BPTarantula|SetSpecies :self Spider :Species (Class|SGTarantula|GetSpecies :self s))
+        (Variables|Default|SetSpName (Class|SGTarantula|GetSpName :self s))
         (Class|BPTarantula|Build :self Spider)
+        (PickSpecies :K (Class|SGTarantula|GetSpecies :self s))
+        (Widget|SetText(TextBox) :self (Class|WBPHUD|GetNameBox :self HUD) :InText (Utilities|Text|ToText(String) SpName))
+        (Widget|SetText(Text) :self (Class|WBPHUD|GetLBtnStart :self HUD) :InText (Utilities|Text|ToText(String) "เล่นต่อ"))
         (Log :Msg "โหลดเซฟเดิมแล้ว"))
       (:CastFailed))))
 ''')
@@ -411,13 +491,15 @@ dsl('EventGraph', '''
   (Class|BPHeli|Setup :self Heli2)
   (bind amb (Audio|SpawnSound2D :Sound "/Game/Game/Sound/S_Room.S_Room" :VolumeMultiplier 0.3))
   (Log :Msg "ยินดีต้อนรับสู่ตู้บึ้งไทย — กด H ดูวิธีเล่น")
-  (LoadNow))
+  (LoadNow)
+  (ShowUI :On false)
+  (Variables|Default|SetIntroT 0.0))
 (event EventTick (DeltaSeconds)
   (bind dt (Math|Float|Min(Float) DeltaSeconds 0.1))
   (Variables|Default|SetFps (Math|Float|Lerp Fps (/ 1.0 (Math|Float|Max(Float) DeltaSeconds 0.001)) 0.05))
   (Utilities|IsValid Spider
     (:"Is Valid"
-      (Controls :DT dt)
+      (if (>= IntroT 0.0) (Intro :DT (Math|Float|Min(Float) DeltaSeconds 0.5)) (else (Controls :DT dt)))
       (Clock :DT dt)
       (Camera :DT dt)
       (UpdateHUD :DT dt)
@@ -428,7 +510,7 @@ dsl('EventGraph', '''
         (Variables|Default|SetSaveT 0.0)
         (SaveNow)))))
 ''')
-edit('Dist', 'Follow', 'Pitch', 'Yaw')   # settable from MCP while playing (close-up screenshots)
+edit('Dist', 'Follow', 'Pitch', 'Yaw', 'Focus')   # settable from MCP while playing (close-up screenshots)
 compile()
 SP = json.load(open('spots.json', encoding='utf-8'))
 print('spawns', call('editor_toolset.toolsets.object.ObjectTools', 'set_properties', {'instance': {'refPath': '/Game/Game/BP_Keeper.Default__BP_Keeper_C'}, 'values': json.dumps({'Spawns': [{'x': p[0], 'y': p[1], 'z': p[2]} for p in SP['hides']]})}))

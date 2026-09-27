@@ -8,7 +8,7 @@ for c, m in (('Legs', 'SegA'), ('LegB', 'SegB'), ('LegC', 'SegC'), ('LegT', 'Seg
 for n, t in [('Span', 'float'), ('MaxSpan', 'float'), ('WanderRadius', 'float'), ('TimeScale', 'float'),
              ('Home', 'Vector'), ('Target', 'Vector'), ('Vel', 'Vector'), ('PauseT', 'float'), ('BurstT', 'float'),
              ('Speed', 'float'), ('Yaw', 'float'), ('YawRate', 'float'), ('Phase', 'float'), ('NSwing', 'int'),
-             ('Hunger', 'float'), ('Growth', 'float'), ('Stage', 'int'), ('StageT', 'float'), ('Molts', 'int'), ('HasTarget', 'bool')]:
+             ('Hunger', 'float'), ('Growth', 'float'), ('Stage', 'int'), ('StageT', 'float'), ('Molts', 'int'), ('HasTarget', 'bool'), ('Species', 'int')]:
     var(n, t)
 for n, t in [('HipL', 'Vector'), ('RestL', 'Vector'), ('Foot', 'Vector'), ('From', 'Vector'),
              ('LA', 'float'), ('LB', 'float'), ('LC', 'float'), ('LT', 'float'), ('Off', 'float'), ('LastP', 'float'),
@@ -17,6 +17,7 @@ for n, t in [('HipL', 'Vector'), ('RestL', 'Vector'), ('Foot', 'Vector'), ('From
 objvar('NoWalk', '/Script/Engine.Actor', True)
 objvar('Prey', '/Game/Game/BP_Prey.BP_Prey_C')
 objvar('Victim', '/Game/Game/BP_Human.BP_Human_C')
+objvar('Exus', '/Game/Spider/BP_Exuvia.BP_Exuvia_C', True)   # cast skins on the ground (≤ 2)
 for n, t in [('EatHuman', 'bool'), ('ChaseT', 'float'), ('IgnoreT', 'float'), ('BestH', 'float'), ('DTm', 'float'), ('Blocked', 'bool')]:
     var(n, t)
 for n, t in [('Best', 'float'), ('Hunting', 'bool'), ('Eating', 'bool'), ('EatT', 'float'), ('Meals', 'int')]:
@@ -110,6 +111,37 @@ dsl('AddLeg', '''
     (Components|InstancedStaticMesh|AddInstance :self Knobs :InstanceTransform (Math|Transform|MakeTransform :Location z))))
 ''')
 
+# species = which kit meshes (SPECIES order in spider.js: 0 minax / บึ้งดำ, 1 huahini / บึ้งน้ำตาล, 2 lividus / บึ้งน้ำเงิน)
+fn('UseSpecies', [('K', 'int')])
+dsl('UseSpecies', '''
+(fn UseSpecies (K)
+  (Variables|Default|SetSpecies K)
+  (if (== K 0)
+      (Components|StaticMesh|SetStaticMesh :self Body :NewMesh "/Game/Spider/Kit/SM_minax_Body.SM_minax_Body")
+      (Components|StaticMesh|SetStaticMesh :self Abdomen :NewMesh "/Game/Spider/Kit/SM_minax_Abd.SM_minax_Abd")
+      (Components|StaticMesh|SetStaticMesh :self Legs :NewMesh "/Game/Spider/Kit/SM_minax_SegA.SM_minax_SegA")
+      (Components|StaticMesh|SetStaticMesh :self LegB :NewMesh "/Game/Spider/Kit/SM_minax_SegB.SM_minax_SegB")
+      (Components|StaticMesh|SetStaticMesh :self LegC :NewMesh "/Game/Spider/Kit/SM_minax_SegC.SM_minax_SegC")
+      (Components|StaticMesh|SetStaticMesh :self LegT :NewMesh "/Game/Spider/Kit/SM_minax_SegT.SM_minax_SegT")
+      (Components|StaticMesh|SetStaticMesh :self Knobs :NewMesh "/Game/Spider/Kit/SM_minax_Knob.SM_minax_Knob")
+    (elif (== K 1)
+      (Components|StaticMesh|SetStaticMesh :self Body :NewMesh "/Game/Spider/Kit/SM_huahini_Body.SM_huahini_Body")
+      (Components|StaticMesh|SetStaticMesh :self Abdomen :NewMesh "/Game/Spider/Kit/SM_huahini_Abd.SM_huahini_Abd")
+      (Components|StaticMesh|SetStaticMesh :self Legs :NewMesh "/Game/Spider/Kit/SM_huahini_SegA.SM_huahini_SegA")
+      (Components|StaticMesh|SetStaticMesh :self LegB :NewMesh "/Game/Spider/Kit/SM_huahini_SegB.SM_huahini_SegB")
+      (Components|StaticMesh|SetStaticMesh :self LegC :NewMesh "/Game/Spider/Kit/SM_huahini_SegC.SM_huahini_SegC")
+      (Components|StaticMesh|SetStaticMesh :self LegT :NewMesh "/Game/Spider/Kit/SM_huahini_SegT.SM_huahini_SegT")
+      (Components|StaticMesh|SetStaticMesh :self Knobs :NewMesh "/Game/Spider/Kit/SM_huahini_Knob.SM_huahini_Knob")
+    (else
+      (Components|StaticMesh|SetStaticMesh :self Body :NewMesh "/Game/Spider/Kit/SM_lividus_Body.SM_lividus_Body")
+      (Components|StaticMesh|SetStaticMesh :self Abdomen :NewMesh "/Game/Spider/Kit/SM_lividus_Abd.SM_lividus_Abd")
+      (Components|StaticMesh|SetStaticMesh :self Legs :NewMesh "/Game/Spider/Kit/SM_lividus_SegA.SM_lividus_SegA")
+      (Components|StaticMesh|SetStaticMesh :self LegB :NewMesh "/Game/Spider/Kit/SM_lividus_SegB.SM_lividus_SegB")
+      (Components|StaticMesh|SetStaticMesh :self LegC :NewMesh "/Game/Spider/Kit/SM_lividus_SegC.SM_lividus_SegC")
+      (Components|StaticMesh|SetStaticMesh :self LegT :NewMesh "/Game/Spider/Kit/SM_lividus_SegT.SM_lividus_SegT")
+      (Components|StaticMesh|SetStaticMesh :self Knobs :NewMesh "/Game/Spider/Kit/SM_lividus_Knob.SM_lividus_Knob")))))
+''')
+
 # (re)build body + legs for the current Span (LEG_CFG from spider.js: ang, fa, reach, a, b, c, t; gait offset per leg)
 fn('Build')
 dsl('Build', '''
@@ -131,13 +163,7 @@ dsl('Build', '''
   (AddLeg :S -1.0 :Ang 1.1 :Fa 1.08 :Reach 0.44 :A 0.15 :B 0.165 :C 0.11 :T 0.055 :O 0.12)
   (AddLeg :S -1.0 :Ang 1.7 :Fa 1.9 :Reach 0.44 :A 0.145 :B 0.155 :C 0.125 :T 0.055 :O 0.56)
   (AddLeg :S -1.0 :Ang 2.3 :Fa 2.62 :Reach 0.5 :A 0.172 :B 0.182 :C 0.16 :T 0.06 :O 0.0)
-  (Components|StaticMesh|SetStaticMesh :self Body :NewMesh "/Game/Spider/Kit/SM_lividus_Body.SM_lividus_Body")
-  (Components|StaticMesh|SetStaticMesh :self Abdomen :NewMesh "/Game/Spider/Kit/SM_lividus_Abd.SM_lividus_Abd")
-  (Components|StaticMesh|SetStaticMesh :self Legs :NewMesh "/Game/Spider/Kit/SM_lividus_SegA.SM_lividus_SegA")
-  (Components|StaticMesh|SetStaticMesh :self LegB :NewMesh "/Game/Spider/Kit/SM_lividus_SegB.SM_lividus_SegB")
-  (Components|StaticMesh|SetStaticMesh :self LegC :NewMesh "/Game/Spider/Kit/SM_lividus_SegC.SM_lividus_SegC")
-  (Components|StaticMesh|SetStaticMesh :self LegT :NewMesh "/Game/Spider/Kit/SM_lividus_SegT.SM_lividus_SegT")
-  (Components|StaticMesh|SetStaticMesh :self Knobs :NewMesh "/Game/Spider/Kit/SM_lividus_Knob.SM_lividus_Knob")
+  (UseSpecies :K Species)
   (Collision|SetCollisionEnabled :self Body :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Abdomen :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Legs :NewType "NoCollision")
@@ -320,7 +346,7 @@ dsl('Move', '''
 fn('Tint')
 dsl('Tint', '''
 (fn Tint ()
-  (bind pale (select (>= Stage 2) (select (== Stage 2) 1.0 0.6) 0.0))
+  (bind pale (select (>= Stage 2) (select (== Stage 2) 0.8 0.35) 0.0))
   (bind dark (select (== Stage 1) 0.75 0.0))
   (Rendering|Material|SetScalarParameterValueonMaterials :self Body :ParameterName "Pale" :ParameterValue pale)
   (Rendering|Material|SetScalarParameterValueonMaterials :self Abdomen :ParameterName "Pale" :ParameterValue pale)
@@ -330,6 +356,19 @@ dsl('Tint', '''
   (Rendering|Material|SetScalarParameterValueonMaterials :self LegC :ParameterName "Pale" :ParameterValue pale)
   (Rendering|Material|SetScalarParameterValueonMaterials :self LegT :ParameterName "Pale" :ParameterValue pale)
   (Rendering|Material|SetScalarParameterValueonMaterials :self Knobs :ParameterName "Pale" :ParameterValue pale))
+''')
+
+# molt end: leave the old skin behind (BP_Exuvia, exu_bp.py) before the body grows; keep the 2 newest
+fn('Shed')
+dsl('Shed', '''
+(fn Shed ()
+  (bind e (Game|SpawnActorfromClass :Class "/Game/Spider/BP_Exuvia.BP_Exuvia_C" :SpawnTransform (Transformation|GetActorTransform) :CollisionHandlingOverride "AlwaysSpawn"))
+  (Class|BPExuvia|Copy :self e :S self)
+  (Utilities|Array|Add Exus e)
+  (if (> (Utilities|Array|Length Exus) 2)
+    (bind old (Utilities|Array|Get(acopy) Exus 0))
+    (if (Valid :A old) (Actor|DestroyActor :self old))
+    (Utilities|Array|RemoveIndex Exus 0)))
 ''')
 
 # needs (game.js): 1 real s = 0.5 game hour x TimeScale; hunger +1.3/h (not while molting); growth 100 -> premolt 30 h -> molting 6 h -> soft 48 h
@@ -346,6 +385,7 @@ dsl('Needs', '''
     (Variables|Default|SetStage 2) (Variables|Default|SetStageT 0.0)
     (Tint))
   (if (and (== Stage 2) (> StageT 6.0))
+    (Shed)
     (Variables|Default|SetSpan (Math|Float|Min(Float) MaxSpan (* Span 1.35)))
     (Variables|Default|SetMolts (+ Molts 1))
     (Variables|Default|SetGrowth 0.0)
@@ -487,4 +527,5 @@ dsl('EventGraph', '''
   (Move :DT dt)
   (Gait :DT dt))
 ''')
+edit('Species', 'Stage', 'StageT')   # Species: level_setup.py sets 2 (lividus); Stage/StageT: settable from MCP to test molts
 compile()
