@@ -2,7 +2,7 @@
 # The script calls target(path, parent) first (creates the Blueprint if missing), then comp()/var()/objvar()/fn()/dsl()
 # and ends with compile(). Existing variables, components and function graphs are kept, so re-running only rewrites graphs.
 # Graph code is Unreal MCP's Blueprint DSL; bare member names / own function calls are expanded by xl().
-import sys, json, re; sys.stdout.reconfigure(encoding='utf-8')
+import sys, os, json, re; sys.stdout.reconfigure(encoding='utf-8')
 from ue import call
 BT = 'editor_toolset.toolsets.blueprint.BlueprintTools'
 AT = 'editor_toolset.toolsets.actor.ActorTools'
@@ -76,7 +76,7 @@ def objvar(name, cls, arr=False):
 
 def edit(*names):
     """make member variables editable per instance (shown in Details)"""
-    for n in names: call(BT, 'set_variable_instance_editable', {'blueprint': BP, 'variable_name': n, 'is_instance_editable': True})
+    for n in names: call(BT, 'set_variable_instance_editable', {'blueprint': BP, 'variable_name': n, 'instance_editable': True})
 
 
 CAT = {}
@@ -162,9 +162,14 @@ def clear(graph):
     return call('editor_toolset.toolsets.programmatic.ProgrammaticToolset', 'execute_tool_script', {'script': CLEAR % G(graph)['refPath']})
 
 
+ONLY = [x for x in os.environ.get('BP_ONLY', '').split(',') if x]   # BP_ONLY=Build,Tint python bp.py x.py: rewrite only these graphs
+
+
 def flush():
     while PEND:
-        g, c, keep = PEND.pop(0); cl = '' if keep else clear(g)
+        g, c, keep = PEND.pop(0)
+        if ONLY and g not in ONLY: continue
+        cl = '' if keep else clear(g)
         r = call(BT, 'write_graph_dsl', {'graph': G(g), 'code': xl(c)}); print(g, ' '.join(cl.split())[:60], '->', r[:3000])
         if 'ERROR' in r: FAILED.append(g)
 

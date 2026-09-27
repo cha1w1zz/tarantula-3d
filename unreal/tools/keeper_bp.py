@@ -428,6 +428,7 @@ dsl('EventGraph', '''
         (Variables|Default|SetSaveT 0.0)
         (SaveNow)))))
 ''')
+edit('Dist', 'Follow', 'Pitch', 'Yaw')   # settable from MCP while playing (close-up screenshots)
 compile()
 SP = json.load(open('spots.json', encoding='utf-8'))
 print('spawns', call('editor_toolset.toolsets.object.ObjectTools', 'set_properties', {'instance': {'refPath': '/Game/Game/BP_Keeper.Default__BP_Keeper_C'}, 'values': json.dumps({'Spawns': [{'x': p[0], 'y': p[1], 'z': p[2]} for p in SP['hides']]})}))

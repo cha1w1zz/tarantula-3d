@@ -1,7 +1,10 @@
 # BP_Tarantula: variables + functions (port of js/spider.js legs/gait + game.js wander/needs). Units: cm (1 game unit = 100 cm)
 target('/Game/Spider/BP_Tarantula')
-for c in ('Body', 'Abdomen'): comp(c, '/Script/Engine.StaticMeshComponent')
-for c in ('Legs', 'Knobs'): comp(c, '/Script/Engine.InstancedStaticMeshComponent')
+# real model parts exported from the web game (js/export.js kit → tools/spider_kit.js → kit_import.py): Legs = femur, LegB/C/T = tibia, metatarsus, tarsus
+K = '/Game/Spider/Kit/SM_lividus_'
+for c, m in (('Body', 'Body'), ('Abdomen', 'Abd')): comp(c, '/Script/Engine.StaticMeshComponent', {'StaticMesh': K + m + '.SM_lividus_' + m})
+for c, m in (('Legs', 'SegA'), ('LegB', 'SegB'), ('LegC', 'SegC'), ('LegT', 'SegT'), ('Knobs', 'Knob')):
+    comp(c, '/Script/Engine.InstancedStaticMeshComponent', {'StaticMesh': K + m + '.SM_lividus_' + m})
 for n, t in [('Span', 'float'), ('MaxSpan', 'float'), ('WanderRadius', 'float'), ('TimeScale', 'float'),
              ('Home', 'Vector'), ('Target', 'Vector'), ('Vel', 'Vector'), ('PauseT', 'float'), ('BurstT', 'float'),
              ('Speed', 'float'), ('Yaw', 'float'), ('YawRate', 'float'), ('Phase', 'float'), ('NSwing', 'int'),
@@ -50,11 +53,11 @@ dsl('Valid', '''
     (:"Is Not Valid" (return false))))
 ''')
 
-fn('Seg', [('Idx', 'int'), ('A', 'Vector'), ('B', 'Vector'), ('R', 'float')])
+fn('Seg', [('Idx', 'int'), ('A', 'Vector'), ('B', 'Vector'), ('R', 'float'), ('C', '/Script/Engine.InstancedStaticMeshComponent')])
 dsl('Seg', '''
-(fn Seg (Idx A B R)
+(fn Seg (Idx A B R C)
   (bind d (- B A))
-  (Components|InstancedStaticMesh|UpdateInstanceTransform :self Legs :InstanceIndex Idx
+  (Components|InstancedStaticMesh|UpdateInstanceTransform :self C :InstanceIndex Idx
     :NewInstanceTransform (Math|Transform|MakeTransform
        :Location (* (+ A B) 0.5)
        :Rotation (Math|Rotator|MakeRotfromZ d)
@@ -99,8 +102,10 @@ dsl('AddLeg', '''
   (Utilities|Array|Add Swing false)
   (Utilities|Array|Add Foot z)
   (Utilities|Array|Add From z)
-  (for k (range 4)
-    (Components|InstancedStaticMesh|AddInstance :self Legs :InstanceTransform (Math|Transform|MakeTransform :Location z)))
+  (Components|InstancedStaticMesh|AddInstance :self Legs :InstanceTransform (Math|Transform|MakeTransform :Location z))
+  (Components|InstancedStaticMesh|AddInstance :self LegB :InstanceTransform (Math|Transform|MakeTransform :Location z))
+  (Components|InstancedStaticMesh|AddInstance :self LegC :InstanceTransform (Math|Transform|MakeTransform :Location z))
+  (Components|InstancedStaticMesh|AddInstance :self LegT :InstanceTransform (Math|Transform|MakeTransform :Location z))
   (for k (range 3)
     (Components|InstancedStaticMesh|AddInstance :self Knobs :InstanceTransform (Math|Transform|MakeTransform :Location z))))
 ''')
@@ -114,6 +119,9 @@ dsl('Build', '''
   (Utilities|Array|Clear Off) (Utilities|Array|Clear LastP) (Utilities|Array|Clear SwT) (Utilities|Array|Clear SwDur)
   (Utilities|Array|Clear Tuck) (Utilities|Array|Clear Swing)
   (Components|InstancedStaticMesh|ClearInstances :self Legs)
+  (Components|InstancedStaticMesh|ClearInstances :self LegB)
+  (Components|InstancedStaticMesh|ClearInstances :self LegC)
+  (Components|InstancedStaticMesh|ClearInstances :self LegT)
   (Components|InstancedStaticMesh|ClearInstances :self Knobs)
   (AddLeg :S 1.0 :Ang 0.6 :Fa 0.5 :Reach 0.5 :A 0.165 :B 0.185 :C 0.12 :T 0.06 :O 0.18)
   (AddLeg :S 1.0 :Ang 1.1 :Fa 1.08 :Reach 0.44 :A 0.15 :B 0.165 :C 0.11 :T 0.055 :O 0.62)
@@ -123,20 +131,27 @@ dsl('Build', '''
   (AddLeg :S -1.0 :Ang 1.1 :Fa 1.08 :Reach 0.44 :A 0.15 :B 0.165 :C 0.11 :T 0.055 :O 0.12)
   (AddLeg :S -1.0 :Ang 1.7 :Fa 1.9 :Reach 0.44 :A 0.145 :B 0.155 :C 0.125 :T 0.055 :O 0.56)
   (AddLeg :S -1.0 :Ang 2.3 :Fa 2.62 :Reach 0.5 :A 0.172 :B 0.182 :C 0.16 :T 0.06 :O 0.0)
-  (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderBody.MI_SpiderBody")
-  (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderAbd.MI_SpiderAbd")
-  (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
-  (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
+  (Components|StaticMesh|SetStaticMesh :self Body :NewMesh "/Game/Spider/Kit/SM_lividus_Body.SM_lividus_Body")
+  (Components|StaticMesh|SetStaticMesh :self Abdomen :NewMesh "/Game/Spider/Kit/SM_lividus_Abd.SM_lividus_Abd")
+  (Components|StaticMesh|SetStaticMesh :self Legs :NewMesh "/Game/Spider/Kit/SM_lividus_SegA.SM_lividus_SegA")
+  (Components|StaticMesh|SetStaticMesh :self LegB :NewMesh "/Game/Spider/Kit/SM_lividus_SegB.SM_lividus_SegB")
+  (Components|StaticMesh|SetStaticMesh :self LegC :NewMesh "/Game/Spider/Kit/SM_lividus_SegC.SM_lividus_SegC")
+  (Components|StaticMesh|SetStaticMesh :self LegT :NewMesh "/Game/Spider/Kit/SM_lividus_SegT.SM_lividus_SegT")
+  (Components|StaticMesh|SetStaticMesh :self Knobs :NewMesh "/Game/Spider/Kit/SM_lividus_Knob.SM_lividus_Knob")
   (Collision|SetCollisionEnabled :self Body :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Abdomen :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Legs :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self LegB :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self LegC :NewType "NoCollision")
+  (Collision|SetCollisionEnabled :self LegT :NewType "NoCollision")
   (Collision|SetCollisionEnabled :self Knobs :NewType "NoCollision")
   (Tint)
   (bind L (/ Span 100.0))
+  (bind k (/ L 10.0))
   (Transformation|SetRelativeTransform :self Body :NewTransform (Math|Transform|MakeTransform
-     :Location (Math|Vector|MakeVector (* 6.0 L) 0.0 (* 1.0 L)) :Scale (Math|Vector|MakeVector (* 0.22 L) (* 0.19 L) (* 0.1 L))))
+     :Rotation (Math|Rotator|MakeRotator 0.0 0.0 -90.0) :Scale (Math|Vector|MakeVector k k k)))
   (Transformation|SetRelativeTransform :self Abdomen :NewTransform (Math|Transform|MakeTransform
-     :Location (Math|Vector|MakeVector (* -17.0 L) 0.0 (* 2.0 L)) :Scale (Math|Vector|MakeVector (* 0.27 L) (* 0.21 L) (* 0.17 L))))
+     :Location (Math|Vector|MakeVector (* -5.5 L) 0.0 (* 0.5 L)) :Rotation (Math|Rotator|MakeRotator 0.0 0.0 -90.0) :Scale (Math|Vector|MakeVector k k k)))
   (bind here (Transformation|GetActorLocation))
   (bind gz (GroundZ :P here))
   (Transformation|SetActorLocationAndRotation :self self
@@ -174,11 +189,10 @@ dsl('SolveLeg', '''
   (bind bend (Math|Vector|Normalize (+ up (* out 0.35))))
   (bind perp (Math|Vector|Normalize (- bend (* dir (Math|Vector|DotProduct bend dir)))))
   (bind knee (+ (+ hip (* dir x)) (* perp y)))
-  (bind k (* I 4))
-  (Seg :Idx k :A hip :B knee :R (* L 0.017))
-  (Seg :Idx (+ k 1) :A knee :B ankle :R (* L 0.015))
-  (Seg :Idx (+ k 2) :A ankle :B base :R (* L 0.011))
-  (Seg :Idx (+ k 3) :A base :B foot :R (* L 0.009))
+  (Seg :C Legs :Idx I :A hip :B knee :R (* L 0.017))
+  (Seg :C LegB :Idx I :A knee :B ankle :R (* L 0.015))
+  (Seg :C LegC :Idx I :A ankle :B base :R (* L 0.011))
+  (Seg :C LegT :Idx I :A base :B foot :R (* L 0.009))
   (bind j (* I 3))
   (Knob :Idx j :P knee :R (* L 0.0165))
   (Knob :Idx (+ j 1) :P ankle :R (* L 0.0128))
@@ -302,22 +316,20 @@ dsl('Move', '''
 ''')
 
 
-# colour by molt stage: premolt = dark abdomen, molting / soft = pale new skin
+# colour by molt stage (kit material params): premolt = dark abdomen, molting / soft = pale new skin
 fn('Tint')
 dsl('Tint', '''
 (fn Tint ()
-  (if (== Stage 1)
-    (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_Black.MI_Black")
-    (elif (>= Stage 2)
-      (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
-      (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
-      (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
-      (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_Shell.MI_Shell")
-      (else
-        (Rendering|Material|SetMaterial :self Body :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderBody.MI_SpiderBody")
-        (Rendering|Material|SetMaterial :self Abdomen :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderAbd.MI_SpiderAbd")
-        (Rendering|Material|SetMaterial :self Legs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")
-        (Rendering|Material|SetMaterial :self Knobs :ElementIndex 0 :Material "/Game/Game/Mat/MI_SpiderLeg.MI_SpiderLeg")))))
+  (bind pale (select (>= Stage 2) (select (== Stage 2) 1.0 0.6) 0.0))
+  (bind dark (select (== Stage 1) 0.75 0.0))
+  (Rendering|Material|SetScalarParameterValueonMaterials :self Body :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self Abdomen :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self Abdomen :ParameterName "Dark" :ParameterValue dark)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self Legs :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self LegB :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self LegC :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self LegT :ParameterName "Pale" :ParameterValue pale)
+  (Rendering|Material|SetScalarParameterValueonMaterials :self Knobs :ParameterName "Pale" :ParameterValue pale))
 ''')
 
 # needs (game.js): 1 real s = 0.5 game hour x TimeScale; hunger +1.3/h (not while molting); growth 100 -> premolt 30 h -> molting 6 h -> soft 48 h

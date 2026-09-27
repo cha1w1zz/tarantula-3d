@@ -84,9 +84,37 @@ const EXPORT = (() => {
     const s = build();
     new THREE.GLTFExporter().parse(s, buf => { (done || save)(buf); s.traverse(o => o.geometry && o.geometry.dispose()); }, { binary: true, maxTextureSize: 2048 });
   }
+  // spider parts for Unreal's BP_Tarantula (unreal/tools/spider_kit.js): a span-1 spider of species `sp`, fur shells left out.
+  // Body = root without the abdomen (root space), Abd = abdomen pivot space, SegA..SegT = one leg segment + its hair, Knob:
+  // segments centred and scaled to the UE unit cylinder (length 1 m, radius ½ m at the BP's radius R = k × span), knob radius ½ m.
+  function kit(sp, done) {
+    matCache.clear();
+    const s = new Spider(sp, 1); s.root.position.set(0, 0, 0); s.root.rotation.set(0, 0, 0); s.root.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4(), M = new THREE.Matrix4(), parts = {};
+    const part = (name, root, rel, skip) => {
+      const grp = new THREE.Group(); grp.name = name; const gm = new Map(); root.updateMatrixWorld(true); inv.copy(root.matrixWorld).invert();
+      root.traverse(o => { if (!o.isMesh || (skip && skip(o)) || o.material.alphaMap) return; const m = matOf(o.material); if (!m) return;
+        M.multiplyMatrices(inv, o.matrixWorld); if (rel) M.premultiply(rel);
+        const g = bake(o.geometry, M), k = m.uuid + key(g); if (!gm.has(k)) gm.set(k, { m, list: [] }); gm.get(k).list.push(g); });
+      for (const { m, list } of gm.values()) grp.add(new THREE.Mesh(merge(list), m));
+      parts[name] = grp;
+    };
+    const inAbd = o => { for (let q = o; q; q = q.parent) if (q === s.abdPivot) return true; return false; };
+    part('Body', s.root, null, inAbd);
+    part('Abd', s.abdPivot);
+    const l = s.legs[0], kk = { A: .017, B: .015, C: .011, T: .009 };
+    for (const n of 'ABCT') { const len = l[n.toLowerCase()], r = 1 / (2 * kk[n]);
+      part('Seg' + n, l[n], new THREE.Matrix4().makeScale(r, 1 / len, r).multiply(new THREE.Matrix4().makeTranslation(0, -len / 2, 0))); }
+    const kr = l.k1.geometry.parameters.radius; part('Knob', l.k1, new THREE.Matrix4().makeScale(.5 / kr, .5 / kr, .5 / kr));
+    s.dispose();
+    const names = Object.keys(parts), out = {};
+    const next = () => { const n = names.shift(); if (!n) return done(out);
+      new THREE.GLTFExporter().parse(parts[n], buf => { out[n] = buf; next(); }, { binary: true, maxTextureSize: 1024 }); };
+    next();
+  }
   const b = document.getElementById('tExport');
   if (b) b.onclick = () => { b.disabled = true; b.textContent = '⏳ กำลังส่งออก…';
     setTimeout(() => { try { run(); notice('ส่งออก tarantula-scene.glb แล้ว — ลากเข้า Unreal ได้เลย'); } catch (e) { console.error(e); notice('ส่งออกไม่สำเร็จ: ' + e.message); }
       b.disabled = false; b.textContent = '📦 ส่งออกไป Unreal (.glb)'; }, 50); };
-  return { build, run };
+  return { build, run, kit };
 })();
